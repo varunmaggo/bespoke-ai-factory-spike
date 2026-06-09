@@ -1,0 +1,205 @@
+# kiro/specs/enterprise-rag-agent.kiro.yaml
+# AWS Kiro spec for the Enterprise RAG Agent
+# Declarative definition of the agentic pipeline
+apiVersion: kiro.dev/v1
+kind: AgentSpec
+metadata:
+  name: enterprise-rag-agent
+  namespace: ai-factory
+  labels:
+    team: ai-platform
+    tier: production
+  annotations:
+    description: "Multi-hop agentic RAG over enterprise data sources with eval gating"
+    runbook: "https://wiki.company.com/runbooks/ai-factory/enterprise-rag-agent"
+
+spec:
+  description: >
+    Retrieve context from enterprise data sources using hybrid vector + graph search,
+    apply ATX transforms to normalise the data, generate a grounded response,
+    and validate it with LLM-as-judge before returning to the caller.
+
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-20250514
+    parameters:
+      max_tokens: 4096
+      temperature: 0.1
+      top_p: 0.95
+
+  # ── Tool definitions ────────────────────────────────────────────────────────
+  tools:
+    - name: vector_search
+      description: >
+        Search the enterprise vector store using hybrid dense + sparse retrieval.
+        Returns a ranked list of relevant document chunks.
+      type: http
+      endpoint: "${RAG_SERVICE_URL}/api/v1/search"
+      method: POST
+      schema:
+        input:
+          query:   { type: string,  required: true }
+          top_k:   { type: integer, default: 10 }
+          filters: { type: object }
+        output:
+          results: { type: array }
+          count:   { type: integer }
+
+    - name: graph_query
+      description: >
+        Query the enterprise knowledge graph to enrich document context
+        with entity relationships (org hierarchy, product dependencies, etc.)
+      type: http
+      endpoint: "${RAG_SERVICE_URL}/api/v1/graph"
+      method: POST
+      schema:
+        input:
+          entity_ids:         { type: array,   required: true }
+          relationship_types: { type: array }
+          max_depth:          { type: integer, default: 2 }
+        output:
+          entities: { type: array }
+
+    - name: atx_transform
+      description: >
+        Apply a named ATX transform pipeline to data.
+        Use 'enterprise-context-normaliser' to clean and prepare retrieved context.
+      type: http
+      endpoint: "${TRANSFORM_SERVICE_URL}/api/v1/transform"
+      method: POST
+      schema:
+        input:
+          pipeline_id: { type: string, required: true }
+          payload:     { type: object, required: true }
+        output:
+          result:      { type: object }
+          success:     { type: boolean }
+          duration_ms: { type: number }
+
+    - name: eval_response
+      description: >
+        Score the draft response using LLM-as-judge before returning it.
+        Returns an overall score (0-1) and per-dimension scores.
+      type: http
+      endpoint: "${EVAL_SERVICE_URL}/api/v1/judge"
+      method: POST
+      schema:
+        input:
+          question: { type: string, required: true }
+          response: { type: string, required: true }
+          context:  { type: string }
+        output:
+          overall_score: { type: number }
+          passed:        { type: boolean }
+          critique:      { type: string }
+
+  # ── Execution steps ─────────────────────────────────────────────────────────
+  steps:
+    - id: retrieve
+      tool: vector_search
+      description: Initial hybrid retrieval from enterprise vector store
+      input:
+        query:  "{{ input.query }}"
+        top_k:  10
+        filters: "{{ input.filters | default({}) }}"
+
+    - id: graph_enrich
+      tool: graph_query
+      description: Enrich retrieved chunks with knowledge graph context
+      dependsOn: [retrieve]
+      condition: "{{ retrieve.result.count > 0 }}"
+      input:
+        entity_ids: "{{ retrieve.result.results | map(attribute='metadata.entity_ids') | flatten | unique }}"
+        max_depth: 2
+
+    - id: transform
+      tool: atx_transform
+      description: Normalise, deduplicate, and truncate retrieved context
+      dependsOn: [retrieve, graph_enrich]
+      input:
+        pipeline_id: "enterprise-context-normaliser"
+        payload:
+          chunks: "{{ retrieve.result.results + (graph_enrich.result.entities | default([])) }}"
+          query:  "{{ input.query }}"
+
+    - id: generate
+      description: Generate a grounded response using the transformed context
+      dependsOn: [transform]
+      prompt: |
+        You are an enterprise AI assistant with access to the company's knowledge base.
+
+        Answer the following question using ONLY the context provided below.
+        If the context does not contain sufficient information to answer confidently,
+        say: "Based on the available information, I cannot answer this fully: [explain what's missing]"
+
+        Always cite your sources using the document IDs in square brackets [DOC-ID].
+
+        Context:
+        {{ transform.result.result.chunks | map(attribute='content') | join('\n\n---\n\n') }}
+
+        Question: {{ input.query }}
+
+        Answer:
+
+    - id: validate
+      tool: eval_response
+      description: Score the response and retry if below quality threshold
+      dependsOn: [generate]
+      input:
+        question: "{{ input.query }}"
+        response: "{{ generate.result }}"
+        context:  "{{ transform.result.result.chunks | map(attribute='content') | join(' ') | truncate(8000) }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          condition: "{{ validate.result.overall_score < 0.75 }}"
+          backoff:
+            type: fixed
+            delay: 2s
+          onRetry:
+            prompt: |
+              Your previous response received a quality score of {{ validate.result.overall_score | round(2) }}.
+              Critique: {{ validate.result.critique }}
+
+              Please revise your answer to address these concerns:
+              {{ validate.result.improvement_suggestions | join(', ') }}
+
+              Context:
+              {{ transform.result.result.chunks | map(attribute='content') | join('\n\n---\n\n') }}
+
+              Question: {{ input.query }}
+
+              Revised answer:
+
+  # ── Output mapping ──────────────────────────────────────────────────────────
+  output:
+    answer:      "{{ validate.dependsOn[0].result }}"
+    eval_score:  "{{ validate.result.overall_score }}"
+    eval_passed: "{{ validate.result.passed }}"
+    critique:    "{{ validate.result.critique }}"
+    sources:     "{{ retrieve.result.results[:5] }}"
+    hops:        1
+
+  # ── Lifecycle hooks ─────────────────────────────────────────────────────────
+  hooks:
+    onStart:
+      - emit_otel_span
+      - log_request
+    onStepComplete:
+      - emit_otel_span
+    onFinish:
+      - emit_otel_span
+      - publish_metrics
+    onError:
+      - emit_otel_span
+      - alert_pagerduty
+
+  # ── Policies ────────────────────────────────────────────────────────────────
+  policies:
+    timeout:
+      total: 60s
+      perStep: 30s
+    rateLimit:
+      requestsPerMinute: 100
+    budget:
+      maxTokensPerRequest: 150000

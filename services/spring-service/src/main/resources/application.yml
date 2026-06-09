@@ -1,0 +1,112 @@
+# application.yml — AI Factory Spring Service
+spring:
+  application:
+    name: ai-factory-spring-service
+
+  ai:
+    anthropic:
+      api-key: ${SPRING_AI_ANTHROPIC_API_KEY}
+      chat:
+        options:
+          model: claude-sonnet-4-20250514
+          max-tokens: 4096
+          temperature: 0.1
+
+  # Circuit breaker config
+  cloud:
+    circuitbreaker:
+      resilience4j:
+        enabled: true
+
+# AI Factory custom config
+ai:
+  factory:
+    rag:
+      url: ${RAG_SERVICE_URL:http://localhost:8001}
+      timeout-seconds: 30
+    eval:
+      url: ${EVAL_SERVICE_URL:http://localhost:8002}
+      timeout-seconds: 15
+      threshold: ${AI_FACTORY_EVAL_THRESHOLD:0.75}
+    transform:
+      url: ${TRANSFORM_SERVICE_URL:http://localhost:8003}
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        ai_factory_query_duration_seconds: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+  tracing:
+    sampling:
+      probability: 1.0
+
+# Resilience4j
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai-factory:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 20
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 50
+        slow-call-duration-threshold: 30s
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 5
+        automatic-transition-from-open-to-half-open-enabled: true
+
+  retry:
+    instances:
+      ai-factory:
+        max-attempts: 3
+        wait-duration: 1s
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException.ServiceUnavailable
+          - java.net.ConnectException
+
+# OpenTelemetry
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://otel-collector:4317}
+  resource:
+    attributes:
+      service.name: ai-factory-spring-service
+      service.version: ${BUILD_VERSION:local}
+      deployment.environment: ${SPRING_PROFILES_ACTIVE:local}
+
+# Logging
+logging:
+  level:
+    com.aifactory: INFO
+    org.springframework.ai: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} [trace=%X{traceId}] - %msg%n"
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  ai:
+    anthropic:
+      api-key: test-key
+
+ai:
+  factory:
+    rag:
+      url: http://localhost:18001
+    eval:
+      url: http://localhost:18002
