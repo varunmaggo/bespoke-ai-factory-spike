@@ -1,0 +1,83 @@
+spring:
+  application:
+    name: ai-factory-modern
+
+  # MIGRATED: spring.ai.openai → spring.ai.anthropic
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}
+      chat:
+        options:
+          model: claude-3-5-sonnet-20241022
+          max-tokens: 2048
+          temperature: 0.3
+
+  # ADDED: Virtual threads (Java 21) — replaces thread-pool tuning
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+
+# ── Downstream services ───────────────────────────────────────────────────────
+ai-factory:
+  rag:
+    url: ${RAG_SERVICE_URL:http://localhost:8001}
+    timeout-seconds: 30
+  eval:
+    url: ${EVAL_SERVICE_URL:http://localhost:8002}
+    timeout-seconds: 15
+  eval-gate:
+    min-score: 0.75          # reject answers scoring below this
+    enabled: ${EVAL_GATE_ENABLED:true}
+
+# ── Resilience4j ─────────────────────────────────────────────────────────────
+resilience4j:
+  circuitbreaker:
+    instances:
+      ai-service:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+      rag-service:
+        sliding-window-size: 10
+        failure-rate-threshold: 60
+        wait-duration-in-open-state: 5s
+  retry:
+    instances:
+      ai-service:
+        max-attempts: 3
+        wait-duration: 1s
+        retry-exceptions:
+          - org.springframework.web.reactive.function.client.WebClientResponseException
+      rag-service:
+        max-attempts: 2
+        wait-duration: 500ms
+
+# ── Observability ─────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0   # 100% in dev; tune down in prod
+
+# ADDED: OTel OTLP exporter → OTel Collector sidecar
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}
+  service:
+    name: ai-factory-modern
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} traceId=%X{traceId} spanId=%X{spanId} - %msg%n"

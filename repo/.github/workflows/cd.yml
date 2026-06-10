@@ -1,0 +1,176 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        default: staging
+        type: choice
+        options: [staging, production]
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  # ── Build & push release images ────────────────────────────────────────────
+  release-images:
+    name: Build & Tag Release Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: tag
+        run: echo "tag=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
+          aws-region:     ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Re-tag and push to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          TAG:          ${{ steps.tag.outputs.tag }}
+        run: |
+          for svc in rag-service eval-service spring-service; do
+            src="ghcr.io/${{ github.repository }}/$svc:${{ github.sha }}"
+            dst="$ECR_REGISTRY/ai-factory/$svc:$TAG"
+            docker pull "$src"
+            docker tag  "$src" "$dst"
+            docker push "$dst"
+            echo "Pushed: $dst"
+          done
+
+  # ── Deploy to staging ──────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: [release-images]
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
+          aws-region:     ${{ env.AWS_REGION }}
+
+      - name: Terraform apply (staging)
+        working-directory: infra/
+        run: |
+          terraform init -backend-config="key=staging/terraform.tfstate"
+          terraform apply -auto-approve \
+            -var="image_tag=${{ needs.release-images.outputs.image_tag }}" \
+            -var="environment=staging"
+
+      - name: Wait for ECS services stable
+        run: |
+          for svc in rag-service eval-service spring-service; do
+            aws ecs wait services-stable \
+              --cluster ai-factory-staging \
+              --services "$svc" \
+              --region "$AWS_REGION"
+          done
+
+  # ── Smoke tests ────────────────────────────────────────────────────────────
+  smoke-tests:
+    name: Smoke Tests (Staging)
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install httpx pytest --break-system-packages
+
+      - name: Run smoke tests
+        env:
+          SPRING_URL: ${{ secrets.STAGING_SPRING_URL }}
+          RAG_URL:    ${{ secrets.STAGING_RAG_URL }}
+        run: pytest tests/smoke/ -v --tb=short
+
+  # ── Deploy to production (with manual approval) ────────────────────────────
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: [smoke-tests]
+    environment: production   # requires manual approval in GitHub Environments
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-deploy
+          aws-region:     ${{ env.AWS_REGION }}
+
+      - name: Terraform apply (production)
+        working-directory: infra/
+        run: |
+          terraform init -backend-config="key=production/terraform.tfstate"
+          terraform apply -auto-approve \
+            -var="image_tag=${{ needs.release-images.outputs.image_tag }}" \
+            -var="environment=production"
+
+      - name: Wait for ECS services stable
+        run: |
+          for svc in rag-service eval-service spring-service; do
+            aws ecs wait services-stable \
+              --cluster ai-factory-production \
+              --services "$svc" \
+              --region "$AWS_REGION"
+          done
+
+  # ── Slack notification ─────────────────────────────────────────────────────
+  notify-slack:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: always()
+    steps:
+      - name: Post deployment result
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "${{ needs.deploy-production.result == 'success' && '✅' || '❌' }} AI Factory deployed to production",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*AI Factory — Production Deployment*\n\nStatus: `${{ needs.deploy-production.result }}`\nVersion: `${{ needs.release-images.outputs.image_tag }}`\nActor: `${{ github.actor }}`\nCommit: <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL:  ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

@@ -1,0 +1,184 @@
+version: "3.9"
+
+services:
+  # ── AI Services ──────────────────────────────────────────────────────────
+
+  rag-service:
+    build:
+      context: ./services/rag
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      OPENSEARCH_HOST:      opensearch
+      OPENSEARCH_PORT:      "9200"
+      NEO4J_URI:            bolt://neo4j:7687
+      NEO4J_USER:           neo4j
+      NEO4J_PASSWORD:       ${NEO4J_PASSWORD:-changeme}
+      ANTHROPIC_API_KEY:    ${ANTHROPIC_API_KEY}
+      AWS_REGION:           ${AWS_REGION:-ap-southeast-2}
+      AWS_ACCESS_KEY_ID:    ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:    rag-service
+    depends_on:
+      opensearch:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  eval-service:
+    build:
+      context: ./services/eval
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      ANTHROPIC_API_KEY:   ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY:      ${OPENAI_API_KEY:-}
+      DEEPEVAL_API_KEY:    ${DEEPEVAL_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:   eval-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # AWS Transform service wrapper (local CLI runner)
+  transform-service:
+    build:
+      context: ./services/transform
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./transformation_definitions:/app/transformation_definitions:ro
+    environment:
+      AWS_REGION:           ${AWS_REGION:-ap-southeast-2}
+      AWS_ACCESS_KEY_ID:    ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:    transform-service
+
+  spring-service:
+    build:
+      context: ./spring
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ANTHROPIC_API_KEY:  ${ANTHROPIC_API_KEY}
+      RAG_SERVICE_URL:    http://rag-service:8001
+      EVAL_SERVICE_URL:   http://eval-service:8002
+      SPRING_PROFILES_ACTIVE: docker
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:  spring-service
+      MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+    depends_on:
+      rag-service:
+        condition: service_healthy
+      eval-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Data Stores ───────────────────────────────────────────────────────────
+
+  opensearch:
+    image: opensearchproject/opensearch:2.11.0
+    environment:
+      discovery.type: single-node
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      DISABLE_SECURITY_PLUGIN:     "true"
+      OPENSEARCH_JAVA_OPTS:        "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.14
+    environment:
+      NEO4J_AUTH:             neo4j/${NEO4J_PASSWORD:-changeme}
+      NEO4J_PLUGINS:          '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -O /dev/null -q http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  # ── Observability ──────────────────────────────────────────────────────────
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    command: ["--config=/etc/otel/collector-config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otel/collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus scrape
+    depends_on:
+      - jaeger
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./otel/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./otel/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"  # UI
+      - "14250:14250"  # gRPC
+    volumes:
+      - jaeger-data:/tmp
+
+volumes:
+  opensearch-data:
+  neo4j-data:
+  prometheus-data:
+  grafana-data:
+  jaeger-data:

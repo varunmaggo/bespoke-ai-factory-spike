@@ -1,0 +1,198 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  JAVA_VERSION:   "21"
+
+jobs:
+  # ── Python lint + unit tests ───────────────────────────────────────────────
+  python-lint-test:
+    name: Python — Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt --break-system-packages
+
+      - name: Ruff lint
+        run: ruff check services/ evals/ scripts/
+
+      - name: Ruff format check
+        run: ruff format --check services/ evals/ scripts/
+
+      - name: Unit tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: pytest tests/ -v --tb=short --ignore=tests/integration -q
+
+  # ── Java build + tests ─────────────────────────────────────────────────────
+  java-build-test:
+    name: Java — Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      - name: Build & test
+        working-directory: spring/
+        run: mvn clean test -B --no-transfer-progress
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RAG_SERVICE_URL:   http://localhost:8001
+          EVAL_SERVICE_URL:  http://localhost:8002
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: spring/target/site/jacoco/jacoco.xml
+          flags: java
+
+  # ── AWS Transform definition validation ────────────────────────────────────
+  aws-transform-validate:
+    name: AWS Transform — Validate Definitions
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install atx CLI
+        run: pip install aws-transform-cli --break-system-packages
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/github-atx
+          aws-region:     ${{ secrets.AWS_REGION }}
+
+      - name: Dry-run all transformation definitions
+        run: |
+          failed=0
+          for def_dir in transformation_definitions/*/; do
+            def_name=$(basename "$def_dir")
+            echo "::group::Validating: $def_name"
+            if ! atx custom def exec \
+              --definition "$def_name" \
+              --source-path tests/fixtures/sample-payload.json \
+              --dry-run \
+              --trust-all-tools; then
+              echo "::error::Validation failed for $def_name"
+              failed=$((failed + 1))
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+
+      - name: Publish definitions (merge to main only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          for def_dir in transformation_definitions/*/; do
+            def_name=$(basename "$def_dir")
+            echo "Publishing: $def_name"
+            atx custom def publish --definition "$def_name"
+          done
+
+  # ── LLM Eval CI gate ───────────────────────────────────────────────────────
+  eval-gate:
+    name: LLM Eval Gate
+    runs-on: ubuntu-latest
+    needs: [python-lint-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt --break-system-packages
+
+      - name: Run eval suite (CI mode — local models)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+          DEEPEVAL_API_KEY:  ${{ secrets.DEEPEVAL_API_KEY }}
+        run: |
+          pytest evals/deepeval/test_rag_quality.py \
+            -v --tb=short \
+            --deepeval \
+            -m "not integration"
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report-${{ github.run_id }}
+          path: .deepeval/
+          retention-days: 30
+
+  # ── Docker build ───────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker — Build Images
+    runs-on: ubuntu-latest
+    needs: [python-lint-test, java-build-test, eval-gate, aws-transform-validate]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push RAG service
+        uses: docker/build-push-action@v5
+        with:
+          context:   services/rag/
+          file:      services/rag/Dockerfile
+          push:      ${{ github.ref == 'refs/heads/main' }}
+          tags:      ghcr.io/${{ github.repository }}/rag-service:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Build and push Eval service
+        uses: docker/build-push-action@v5
+        with:
+          context:   services/eval/
+          file:      services/eval/Dockerfile
+          push:      ${{ github.ref == 'refs/heads/main' }}
+          tags:      ghcr.io/${{ github.repository }}/eval-service:${{ github.sha }}
+
+      - name: Build and push Spring service
+        uses: docker/build-push-action@v5
+        with:
+          context:   spring/
+          file:      spring/Dockerfile
+          push:      ${{ github.ref == 'refs/heads/main' }}
+          tags:      ghcr.io/${{ github.repository }}/spring-service:${{ github.sha }}

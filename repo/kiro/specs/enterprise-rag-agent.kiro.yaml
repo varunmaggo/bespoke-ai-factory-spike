@@ -1,0 +1,181 @@
+apiVersion: kiro.dev/v1
+kind: AgentSpec
+metadata:
+  name: enterprise-rag-agent
+  namespace: ai-factory
+  labels:
+    team: ai-platform
+    version: "1.0.0"
+spec:
+  description: |
+    Enterprise RAG agent that retrieves context from vector store and knowledge graph,
+    normalises it via AWS Transform, generates a grounded answer with Claude Sonnet,
+    then validates the response with the eval service before returning.
+
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-20250514
+    parameters:
+      max_tokens: 4096
+      temperature: 0.1
+      system: |
+        You are a precise enterprise assistant. Answer questions using ONLY the
+        provided context. Cite sources as [DOC-ID]. If the context is insufficient,
+        say so explicitly. Never hallucinate.
+
+  tools:
+    - name: vector_search
+      description: Hybrid vector + BM25 search over enterprise documents
+      type: function
+      parameters:
+        query:
+          type: string
+          required: true
+          description: The search query
+        top_k:
+          type: integer
+          default: 10
+          description: Number of results to return
+        filters:
+          type: object
+          required: false
+          description: 'Optional metadata filters (e.g. {"department": "finance"})'
+
+    - name: graph_query
+      description: Execute a Cypher query against the Neo4j knowledge graph
+      type: function
+      parameters:
+        cypher:
+          type: string
+          required: true
+          description: Cypher query to execute
+        params:
+          type: object
+          required: false
+          description: Query parameters
+
+    - name: aws_transform
+      description: |
+        Execute an AWS Transform transformation definition against a payload.
+        Used to normalise, redact PII, flatten SAP payloads, and truncate context.
+      type: function
+      parameters:
+        definition_name:
+          type: string
+          required: true
+          description: Name of the published transformation definition
+        payload:
+          type: object
+          required: true
+          description: The data payload to transform
+        output_path:
+          type: string
+          required: false
+          description: Optional filesystem path for transformed output
+
+    - name: eval_response
+      description: Score a generated response for quality and safety
+      type: function
+      parameters:
+        response:
+          type: string
+          required: true
+        question:
+          type: string
+          required: true
+        context:
+          type: string
+          required: true
+
+  steps:
+    - id: retrieve
+      description: Retrieve relevant document chunks via hybrid search
+      tool: vector_search
+      input:
+        query: "{{ request.query }}"
+        top_k: 10
+        filters: "{{ request.filters | default({}) }}"
+
+    - id: enrich
+      description: Enrich with related entities from the knowledge graph
+      tool: graph_query
+      dependsOn: [retrieve]
+      input:
+        cypher: |
+          MATCH (e:Entity)-[:MENTIONED_IN]->(d:Document)
+          WHERE d.id IN $doc_ids
+          MATCH (e)-[:RELATED_TO*1..2]-(related:Entity)
+          RETURN DISTINCT related.name as name, related.description as description,
+                 related.type as type, collect(d.id)[0] as source_doc
+          LIMIT 20
+        params:
+          doc_ids: "{{ retrieve.output.doc_ids }}"
+
+    - id: transform
+      description: Normalise context via AWS Transform (PII redaction, date normalisation, SAP flattening)
+      tool: aws_transform
+      dependsOn: [enrich]
+      config:
+        definition_name: enterprise-context-normaliser
+      input:
+        payload:
+          chunks: "{{ retrieve.output.chunks }}"
+          graph_context: "{{ enrich.output.entities }}"
+
+    - id: generate
+      description: Generate a grounded answer using the normalised context
+      dependsOn: [transform]
+      input:
+        messages:
+          - role: user
+            content: |
+              Context:
+              {{ transform.output.formatted_context }}
+
+              Question: {{ request.query }}
+
+    - id: validate
+      description: Validate response quality; retry if score < threshold
+      tool: eval_response
+      dependsOn: [generate]
+      input:
+        response: "{{ generate.output.content }}"
+        question: "{{ request.query }}"
+        context: "{{ transform.output.formatted_context }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          condition: "score < 0.75"
+          backoff:
+            initialDelay: 500ms
+            multiplier: 2.0
+
+  hooks:
+    onStart:
+      - emit_otel_span:
+          name: "kiro.agent.start"
+          attributes:
+            query_length: "{{ request.query | length }}"
+            user_id: "{{ request.user_id }}"
+
+    onFinish:
+      - emit_otel_span:
+          name: "kiro.agent.finish"
+          attributes:
+            eval_score: "{{ validate.output.score }}"
+            total_hops: "{{ retrieve.output.hops }}"
+            tokens_used: "{{ generate.output.usage.total_tokens }}"
+
+    onError:
+      - alert_pagerduty:
+          severity: "warning"
+          summary: "AI Factory agent error: {{ error.message }}"
+          dedup_key: "ai-factory-{{ request.user_id }}"
+
+  output:
+    answer: "{{ generate.output.content }}"
+    sources: "{{ retrieve.output.sources }}"
+    eval_score: "{{ validate.output.score }}"
+    eval_passed: "{{ validate.output.passed }}"
+    hops: "{{ retrieve.output.hops }}"
+    transform_metadata: "{{ transform.output._transform_metadata }}"
