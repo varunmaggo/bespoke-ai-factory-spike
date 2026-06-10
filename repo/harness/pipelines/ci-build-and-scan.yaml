@@ -1,0 +1,221 @@
+# Harness CI pipeline — build, unit-test, SAST, image build + scan, push to ECR.
+# Import via Pipelines → Import from Git, then set the connector/identifier
+# placeholders (<...>) for your account.
+pipeline:
+  name: ai-factory-ci
+  identifier: ai_factory_ci
+  projectIdentifier: <PROJECT_IDENTIFIER>
+  orgIdentifier: <ORG_IDENTIFIER>
+  properties:
+    ci:
+      codebase:
+        connectorRef: <GITHUB_CONNECTOR>
+        repoName: bespoke-ai-factory-spike
+        build: <+input>
+  stages:
+    # ── 1. Unit tests ─────────────────────────────────────────────────────────
+    - stage:
+        name: Build and Unit Test
+        identifier: build_test
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Python unit tests
+                  identifier: pytest
+                  spec:
+                    shell: Sh
+                    image: python:3.11-slim
+                    command: |
+                      cd repo
+                      pip install --quiet pytest tiktoken
+                      python -m pytest --tb=short
+              - step:
+                  type: Run
+                  name: Java build and test
+                  identifier: mvn_test
+                  spec:
+                    shell: Sh
+                    image: maven:3.9-eclipse-temurin-21
+                    command: |
+                      cd repo/spring
+                      mvn -B --no-transfer-progress clean test
+
+    # ── 2. SAST (Security Testing Orchestration) ─────────────────────────────
+    - stage:
+        name: SAST
+        identifier: sast
+        type: SecurityTests
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Semgrep
+                  name: Semgrep SAST
+                  identifier: semgrep
+                  spec:
+                    mode: orchestration
+                    config: default
+                    target:
+                      type: repository
+                      name: bespoke-ai-factory-spike
+                      variant: <+codebase.branch>
+                    advanced:
+                      fail_on_severity: high
+              - step:
+                  type: Gitleaks
+                  name: Secret scanning
+                  identifier: gitleaks
+                  spec:
+                    mode: orchestration
+                    config: default
+                    target:
+                      type: repository
+                      name: bespoke-ai-factory-spike
+                      variant: <+codebase.branch>
+                    advanced:
+                      fail_on_severity: high
+              - step:
+                  type: Owasp
+                  name: OWASP dependency check
+                  identifier: owasp_deps
+                  spec:
+                    mode: orchestration
+                    config: default
+                    target:
+                      type: repository
+                      name: bespoke-ai-factory-spike
+                      variant: <+codebase.branch>
+                    advanced:
+                      fail_on_severity: critical
+
+    # ── 3. Build, scan and push images ───────────────────────────────────────
+    - stage:
+        name: Build and Push Images
+        identifier: build_push
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - parallel:
+                  - step:
+                      type: BuildAndPushECR
+                      name: spring-service
+                      identifier: push_spring
+                      spec:
+                        connectorRef: <AWS_CONNECTOR>
+                        region: ap-southeast-2
+                        account: "<AWS_ACCOUNT_ID>"
+                        imageName: ai-factory/spring-service
+                        tags:
+                          - <+codebase.commitSha>
+                        dockerfile: repo/spring/Dockerfile
+                        context: repo/spring
+                  - step:
+                      type: BuildAndPushECR
+                      name: rag-service
+                      identifier: push_rag
+                      spec:
+                        connectorRef: <AWS_CONNECTOR>
+                        region: ap-southeast-2
+                        account: "<AWS_ACCOUNT_ID>"
+                        imageName: ai-factory/rag-service
+                        tags:
+                          - <+codebase.commitSha>
+                        dockerfile: repo/services/rag/Dockerfile
+                        context: repo
+                  - step:
+                      type: BuildAndPushECR
+                      name: eval-service
+                      identifier: push_eval
+                      spec:
+                        connectorRef: <AWS_CONNECTOR>
+                        region: ap-southeast-2
+                        account: "<AWS_ACCOUNT_ID>"
+                        imageName: ai-factory/eval-service
+                        tags:
+                          - <+codebase.commitSha>
+                        dockerfile: repo/services/eval/Dockerfile
+                        context: repo
+                  - step:
+                      type: BuildAndPushECR
+                      name: transform-service
+                      identifier: push_transform
+                      spec:
+                        connectorRef: <AWS_CONNECTOR>
+                        region: ap-southeast-2
+                        account: "<AWS_ACCOUNT_ID>"
+                        imageName: ai-factory/transform-service
+                        tags:
+                          - <+codebase.commitSha>
+                        dockerfile: repo/services/transform/Dockerfile
+                        context: repo
+
+    # ── 4. Container image scan ──────────────────────────────────────────────
+    - stage:
+        name: Image Scan
+        identifier: image_scan
+        type: SecurityTests
+        spec:
+          cloneCodebase: false
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: AquaTrivy
+                  name: Trivy scan spring-service
+                  identifier: trivy_spring
+                  spec:
+                    mode: orchestration
+                    config: default
+                    privileged: true
+                    image:
+                      type: aws_ecr
+                      name: ai-factory/spring-service
+                      tag: <+codebase.commitSha>
+                      region: ap-southeast-2
+                    advanced:
+                      fail_on_severity: critical
+              - step:
+                  type: AquaTrivy
+                  name: Trivy scan rag-service
+                  identifier: trivy_rag
+                  spec:
+                    mode: orchestration
+                    config: default
+                    privileged: true
+                    image:
+                      type: aws_ecr
+                      name: ai-factory/rag-service
+                      tag: <+codebase.commitSha>
+                      region: ap-southeast-2
+                    advanced:
+                      fail_on_severity: critical

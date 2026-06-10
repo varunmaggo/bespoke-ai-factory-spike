@@ -1,0 +1,335 @@
+# Harness CD pipeline — promote one image tag through dev → sit → preprod → prod.
+# dev/sit use ECS rolling deploys; preprod/prod use ECS CANARY deploys
+# (canary tasks → verification window → full rollout, auto-rollback on failure).
+# DAST (OWASP ZAP) runs against SIT before any approval to promote.
+#
+# Prereqs in Harness:
+#  - ECS services/environments configured (one Harness Environment per env,
+#    Infrastructure Definition = ECS cluster ai-factory-<env> from Terraform)
+#  - Service "ai_factory_spring" (repeat pipeline or add parallel stages for
+#    rag/eval/transform, or template this pipeline per service)
+pipeline:
+  name: ai-factory-cd
+  identifier: ai_factory_cd
+  projectIdentifier: <PROJECT_IDENTIFIER>
+  orgIdentifier: <ORG_IDENTIFIER>
+  variables:
+    - name: image_tag
+      type: String
+      required: true
+      value: <+input>
+  stages:
+    # ── DEV — rolling, auto ───────────────────────────────────────────────────
+    - stage:
+        name: Deploy Dev
+        identifier: deploy_dev
+        type: Deployment
+        spec:
+          deploymentType: ECS
+          service:
+            serviceRef: ai_factory_spring
+            serviceInputs:
+              serviceDefinition:
+                type: ECS
+                spec:
+                  artifacts:
+                    primary:
+                      primaryArtifactRef: ecr_image
+                      sources:
+                        - identifier: ecr_image
+                          type: Ecr
+                          spec:
+                            tag: <+pipeline.variables.image_tag>
+          environment:
+            environmentRef: dev
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: ecs_dev
+          execution:
+            steps:
+              - step:
+                  type: EcsRollingDeploy
+                  name: Rolling Deploy
+                  identifier: rolling_deploy
+                  timeout: 15m
+                  spec:
+                    sameAsAlreadyRunningInstances: false
+                    forceNewDeployment: true
+              - step:
+                  type: ShellScript
+                  name: Smoke tests
+                  identifier: smoke
+                  timeout: 10m
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+                          export SPRING_URL="http://<+env.variables.alb_dns_name>"
+                          curl -fsS "$SPRING_URL/actuator/health"
+            rollbackSteps:
+              - step:
+                  type: EcsRollingRollback
+                  name: Rollback
+                  identifier: rollback
+                  timeout: 15m
+                  spec: {}
+
+    # ── SIT — rolling + DAST ─────────────────────────────────────────────────
+    - stage:
+        name: Deploy SIT
+        identifier: deploy_sit
+        type: Deployment
+        spec:
+          deploymentType: ECS
+          service:
+            useFromStage:
+              stage: deploy_dev
+          environment:
+            environmentRef: sit
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: ecs_sit
+          execution:
+            steps:
+              - step:
+                  type: EcsRollingDeploy
+                  name: Rolling Deploy
+                  identifier: rolling_deploy
+                  timeout: 15m
+                  spec:
+                    sameAsAlreadyRunningInstances: false
+                    forceNewDeployment: true
+            rollbackSteps:
+              - step:
+                  type: EcsRollingRollback
+                  name: Rollback
+                  identifier: rollback
+                  timeout: 15m
+                  spec: {}
+
+    - stage:
+        name: DAST
+        identifier: dast
+        type: SecurityTests
+        spec:
+          cloneCodebase: false
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Zap
+                  name: OWASP ZAP scan (SIT)
+                  identifier: zap_sit
+                  timeout: 30m
+                  spec:
+                    mode: orchestration
+                    config: default
+                    target:
+                      type: instance
+                      name: ai-factory-sit
+                      variant: <+pipeline.variables.image_tag>
+                    instance:
+                      domain: <SIT_ALB_DNS_NAME>
+                      protocol: http
+                      port: 80
+                      path: /
+                    advanced:
+                      fail_on_severity: high
+
+    # ── PREPROD — canary + approval ──────────────────────────────────────────
+    - stage:
+        name: Approve Preprod
+        identifier: approve_preprod
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: HarnessApproval
+                  name: Promote to preprod
+                  identifier: approve
+                  timeout: 1d
+                  spec:
+                    approvalMessage: SIT verified and DAST clean — promote <+pipeline.variables.image_tag> to preprod?
+                    includePipelineExecutionHistory: true
+                    approvers:
+                      userGroups:
+                        - <RELEASE_APPROVERS_GROUP>
+                      minimumCount: 1
+                      disallowPipelineExecutor: false
+
+    - stage:
+        name: Deploy Preprod (Canary)
+        identifier: deploy_preprod
+        type: Deployment
+        spec:
+          deploymentType: ECS
+          service:
+            useFromStage:
+              stage: deploy_dev
+          environment:
+            environmentRef: preprod
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: ecs_preprod
+          execution:
+            steps:
+              - step:
+                  type: EcsCanaryDeploy
+                  name: Canary Deploy (25%)
+                  identifier: canary_deploy
+                  timeout: 15m
+                  spec: {}
+              - step:
+                  type: ShellScript
+                  name: Verify canary (error rate + p95)
+                  identifier: verify_canary
+                  timeout: 15m
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+                          # 10-minute observation window: fail the stage (and trigger
+                          # rollback) if the canary tasks report 5xx or unhealthy targets.
+                          # Replace with a Harness CV "Verify" step if a health source
+                          # (CloudWatch/Prometheus) is connected.
+                          sleep 600
+                          aws cloudwatch get-metric-statistics \
+                            --namespace AWS/ApplicationELB \
+                            --metric-name HTTPCode_Target_5XX_Count \
+                            --dimensions Name=LoadBalancer,Value=<+env.variables.alb_arn_suffix> \
+                            --start-time "$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
+                            --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                            --period 600 --statistics Sum --output text | \
+                            awk '{ if ($2 > 5) { print "Canary failed: " $2 " 5xx errors"; exit 1 } }'
+              - step:
+                  type: EcsCanaryDelete
+                  name: Remove canary tasks
+                  identifier: canary_delete
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  type: EcsRollingDeploy
+                  name: Full Rollout (100%)
+                  identifier: full_rollout
+                  timeout: 20m
+                  spec:
+                    sameAsAlreadyRunningInstances: false
+                    forceNewDeployment: true
+            rollbackSteps:
+              - step:
+                  type: EcsCanaryDelete
+                  name: Delete canary
+                  identifier: rollback_canary
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  type: EcsRollingRollback
+                  name: Rollback service
+                  identifier: rollback_service
+                  timeout: 15m
+                  spec: {}
+
+    # ── PROD — canary + approval ─────────────────────────────────────────────
+    - stage:
+        name: Approve Prod
+        identifier: approve_prod
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: HarnessApproval
+                  name: Promote to prod
+                  identifier: approve
+                  timeout: 1d
+                  spec:
+                    approvalMessage: Preprod canary verified — promote <+pipeline.variables.image_tag> to PROD?
+                    includePipelineExecutionHistory: true
+                    approvers:
+                      userGroups:
+                        - <RELEASE_APPROVERS_GROUP>
+                      minimumCount: 2
+                      disallowPipelineExecutor: true
+
+    - stage:
+        name: Deploy Prod (Canary)
+        identifier: deploy_prod
+        type: Deployment
+        spec:
+          deploymentType: ECS
+          service:
+            useFromStage:
+              stage: deploy_dev
+          environment:
+            environmentRef: prod
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: ecs_prod
+          execution:
+            steps:
+              - step:
+                  type: EcsCanaryDeploy
+                  name: Canary Deploy (25%)
+                  identifier: canary_deploy
+                  timeout: 15m
+                  spec: {}
+              - step:
+                  type: ShellScript
+                  name: Verify canary (error rate + p95)
+                  identifier: verify_canary
+                  timeout: 15m
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    source:
+                      type: Inline
+                      spec:
+                        script: |
+                          sleep 600
+                          aws cloudwatch get-metric-statistics \
+                            --namespace AWS/ApplicationELB \
+                            --metric-name HTTPCode_Target_5XX_Count \
+                            --dimensions Name=LoadBalancer,Value=<+env.variables.alb_arn_suffix> \
+                            --start-time "$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)" \
+                            --end-time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                            --period 600 --statistics Sum --output text | \
+                            awk '{ if ($2 > 5) { print "Canary failed: " $2 " 5xx errors"; exit 1 } }'
+              - step:
+                  type: EcsCanaryDelete
+                  name: Remove canary tasks
+                  identifier: canary_delete
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  type: EcsRollingDeploy
+                  name: Full Rollout (100%)
+                  identifier: full_rollout
+                  timeout: 20m
+                  spec:
+                    sameAsAlreadyRunningInstances: false
+                    forceNewDeployment: true
+            rollbackSteps:
+              - step:
+                  type: EcsCanaryDelete
+                  name: Delete canary
+                  identifier: rollback_canary
+                  timeout: 10m
+                  spec: {}
+              - step:
+                  type: EcsRollingRollback
+                  name: Rollback service
+                  identifier: rollback_service
+                  timeout: 15m
+                  spec: {}
