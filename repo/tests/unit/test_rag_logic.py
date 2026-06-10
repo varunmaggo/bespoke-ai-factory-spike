@@ -5,13 +5,12 @@ No external services required — all I/O is mocked via conftest.py stubs.
 import json
 import pathlib
 import subprocess
-import tempfile
 import unittest.mock as m
 
 import pytest
 
 from services.rag.vector_store import EnterpriseVectorStore
-from services.rag.orchestrator import AgentRAGOrchestrator, RAGResult, _merge_deduplicate
+from services.rag.orchestrator import AgentRAGOrchestrator, _merge_deduplicate
 
 
 # ── _merge_deduplicate ────────────────────────────────────────────────────────
@@ -67,8 +66,6 @@ class TestRRFFusion:
     def test_shared_doc_scores_higher(self):
         shared = [{"_source": {"document_id": "SHARED", "content": "shared", "metadata": {}}}]
         unique = [{"_source": {"document_id": "UNIQUE", "content": "unique", "metadata": {}}}]
-        both = self.vs._rrf_fusion(shared, shared, top_k=1, dense_weight=0.5)
-        one  = self.vs._rrf_fusion(shared, unique, top_k=1, dense_weight=0.5)
         # shared doc appears in both lists → boosted score
         shared_in_both = next(r for r in self.vs._rrf_fusion(shared, shared, top_k=2, dense_weight=0.5) if r["document_id"] == "SHARED")
         shared_in_one  = next(r for r in self.vs._rrf_fusion(shared, unique, top_k=2, dense_weight=0.5) if r["document_id"] == "SHARED")

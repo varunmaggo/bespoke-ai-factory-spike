@@ -34,6 +34,15 @@ for _mod in _STUBS:
     if _mod not in sys.modules:
         sys.modules[_mod] = m.MagicMock()
 
+# tiktoken gets a functional stub (≈1 token per whitespace-separated word) so the
+# normaliser's truncation logic stays testable without the real dependency.
+try:
+    import tiktoken  # noqa: F401
+except ImportError:
+    _fake_tiktoken = m.MagicMock()
+    _fake_tiktoken.get_encoding.return_value.encode.side_effect = lambda s: str(s).split()
+    sys.modules["tiktoken"] = _fake_tiktoken
+
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture

@@ -107,7 +107,7 @@ The output must include `_transform_metadata`:
 Run the test suite to validate this definition against known inputs:
 
 ```bash
-python -m pytest tests/transforms/test_enterprise_normaliser.py -v --tb=short
+python -m pytest tests/unit/test_transform_logic.py -v --tb=short
 ```
 
 ## References
