@@ -19,7 +19,6 @@ import pathlib
 import shutil
 import subprocess
 import tempfile
-from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from opentelemetry import trace

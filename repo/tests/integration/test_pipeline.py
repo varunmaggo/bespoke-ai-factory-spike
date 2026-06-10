@@ -81,8 +81,8 @@ class TestFullRAGPipeline:
     # ── Happy path ────────────────────────────────────────────────────────────
 
     def test_single_hop_sufficient(self):
-        client = self._mock_anthropic(sufficient=True, confidence=0.92,
-                                      answer="The Q2 forecast is AUD 4.2M.")
+        self._mock_anthropic(sufficient=True, confidence=0.92,
+                             answer="The Q2 forecast is AUD 4.2M.")
         with self._mock_transform_success(self.sample_chunks):
             result = self.orch.retrieve_and_generate("What is Q2 forecast?")
 

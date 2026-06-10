@@ -51,8 +51,6 @@ class TestEvalCIGate:
 
     def test_overall_score_weighting(self, rag_test_case):
         """Overall score formula: weighted sum of metric scores (inverted for max-metrics)."""
-        # Simulate all-perfect scores
-        ev = RAGEvaluator.__new__(RAGEvaluator)
         # Manually compute: 1.0 * 0.35 + 1.0 * 0.30 + 1.0 * 0.20 + (1-0)*0.10 + (1-0)*0.025 + (1-0)*0.025
         expected = 0.35 + 0.30 + 0.20 + 0.10 + 0.025 + 0.025
         assert abs(expected - 1.0) < 0.001

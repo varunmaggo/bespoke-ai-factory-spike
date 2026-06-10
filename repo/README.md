@@ -47,6 +47,7 @@ Services will be available at:
 | Spring API | http://localhost:8080 |
 | RAG Service | http://localhost:8001 |
 | Eval Service | http://localhost:8002 |
+| Transform Service | http://localhost:8003 |
 | Grafana | http://localhost:3000 |
 | Jaeger | http://localhost:16686 |
 | Prometheus | http://localhost:9090 |
@@ -83,7 +84,22 @@ atx custom def list
 atx custom def publish --definition enterprise-context-normaliser
 ```
 
-### 5. Query end-to-end
+### 5. Try the transform service directly
+
+The transform service (:8003) wraps `atx custom def exec` behind an HTTP API and
+falls back to a local Python implementation of `enterprise-context-normaliser`
+when the atx CLI is not installed — so the demo works without AWS access.
+
+```bash
+curl -X POST http://localhost:8003/transform \
+  -H "Content-Type: application/json" \
+  -d "{\"definition\": \"enterprise-context-normaliser\", \"payload\": $(cat tests/fixtures/sample-payload.json)}"
+
+# List available definitions
+curl http://localhost:8003/definitions
+```
+
+### 6. Query end-to-end
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/query \
@@ -91,10 +107,10 @@ curl -X POST http://localhost:8080/api/v1/query \
   -d '{"query": "What is our Q2 revenue forecast?", "userId": "user-123"}'
 ```
 
-### 6. Run evaluations
+### 7. Run evaluations
 
 ```bash
-pytest evals/ -v --deepeval
+pytest evals/ -v -m deepeval
 ```
 
 ## AWS Transform Definitions

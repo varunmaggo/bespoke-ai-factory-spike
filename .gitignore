@@ -1,1 +1,16 @@
 bespoke-ai-factory-spike/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.deepeval/
+
+# Java
+target/
+
+# Env / IDE / OS
+.env
+.DS_Store

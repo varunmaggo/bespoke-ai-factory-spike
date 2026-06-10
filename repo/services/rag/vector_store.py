@@ -9,7 +9,6 @@ import logging
 from typing import Optional
 
 import boto3
-from botocore.credentials import RefreshableCredentials
 from opensearchpy import OpenSearch, RequestsHttpConnection, helpers
 from requests_aws4auth import AWSV4SignerAuth
 

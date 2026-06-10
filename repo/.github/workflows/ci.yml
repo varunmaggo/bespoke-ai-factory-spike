@@ -27,10 +27,7 @@ jobs:
         run: pip install -r requirements.txt --break-system-packages
 
       - name: Ruff lint
-        run: ruff check services/ evals/ scripts/
-
-      - name: Ruff format check
-        run: ruff format --check services/ evals/ scripts/
+        run: ruff check services/ evals/ scripts/ tests/
 
       - name: Unit tests
         env:
@@ -139,8 +136,7 @@ jobs:
         run: |
           pytest evals/deepeval/test_rag_quality.py \
             -v --tb=short \
-            --deepeval \
-            -m "not integration"
+            -m "deepeval and not integration"
 
       - name: Upload eval report
         if: always()

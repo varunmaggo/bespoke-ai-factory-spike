@@ -13,12 +13,9 @@ CI thresholds block deployment if any metric is violated.
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 from dataclasses import dataclass
 
-from deepeval import evaluate
 from deepeval.metrics import (
     AnswerRelevancyMetric,
     BiasMetric,

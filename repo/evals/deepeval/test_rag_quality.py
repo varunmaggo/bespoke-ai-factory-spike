@@ -1,15 +1,21 @@
 """
 evals/deepeval/test_rag_quality.py — Pytest-based CI evaluation suite.
 
+Skipped by default (the `deepeval` marker is deselected in pytest.ini).
 Run with:
-    pytest evals/deepeval/test_rag_quality.py -v --deepeval
+    pytest evals/deepeval/test_rag_quality.py -v -m deepeval
 """
 import json
 import pathlib
 import pytest
-import httpx
 
-from .rag_evaluator import RAGEvaluator, THRESHOLDS
+pytest.importorskip("deepeval", reason="deepeval not installed — runs in the eval-gate CI job")
+
+import httpx  # noqa: E402
+
+from .rag_evaluator import RAGEvaluator  # noqa: E402
+
+pytestmark = pytest.mark.deepeval
 
 RAG_SERVICE_URL = "http://localhost:8001"
 GOLDEN_DATASET  = pathlib.Path(__file__).parent / "golden_dataset.json"
