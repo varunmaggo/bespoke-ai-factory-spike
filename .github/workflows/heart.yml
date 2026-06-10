@@ -3,12 +3,16 @@ name: Heart On Your Sleeve
 on:
   workflow_dispatch: {}
 
+permissions:
+  issues: write
+  reactions: write
+
 jobs:
   react-and-close:
     runs-on: ubuntu-latest
     steps:
       - name: Create issue, react ❤️ and close
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const issue = await github.rest.issues.create({
