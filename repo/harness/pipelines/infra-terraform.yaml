@@ -1,0 +1,124 @@
+# Harness infra pipeline — provision/update one AWS environment with Terraform.
+# Run with environment as a runtime input (dev | sit | preprod | prod).
+# Plan is always reviewed and approved before apply.
+pipeline:
+  name: ai-factory-infra
+  identifier: ai_factory_infra
+  projectIdentifier: <PROJECT_IDENTIFIER>
+  orgIdentifier: <ORG_IDENTIFIER>
+  variables:
+    - name: environment
+      type: String
+      required: true
+      value: <+input>.allowedValues(dev,sit,preprod,prod)
+    - name: image_tag
+      type: String
+      required: false
+      value: <+input>.default(latest)
+  stages:
+    - stage:
+        name: Terraform Plan
+        identifier: tf_plan
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: TerraformPlan
+                  name: Plan
+                  identifier: plan
+                  timeout: 20m
+                  spec:
+                    provisionerIdentifier: aifactory_<+pipeline.variables.environment>
+                    configuration:
+                      command: Apply
+                      configFiles:
+                        store:
+                          type: Github
+                          spec:
+                            connectorRef: <GITHUB_CONNECTOR>
+                            repoName: bespoke-ai-factory-spike
+                            gitFetchType: Branch
+                            branch: main
+                            folderPath: repo/infra/terraform
+                      varFiles:
+                        - varFile:
+                            type: Remote
+                            identifier: env_tfvars
+                            spec:
+                              store:
+                                type: Github
+                                spec:
+                                  connectorRef: <GITHUB_CONNECTOR>
+                                  repoName: bespoke-ai-factory-spike
+                                  gitFetchType: Branch
+                                  branch: main
+                                  paths:
+                                    - repo/infra/terraform/envs/<+pipeline.variables.environment>.tfvars
+                        - varFile:
+                            type: Inline
+                            identifier: image_tag
+                            spec:
+                              content: |
+                                image_tag = "<+pipeline.variables.image_tag>"
+                      backendConfig:
+                        type: Remote
+                        spec:
+                          store:
+                            type: Github
+                            spec:
+                              connectorRef: <GITHUB_CONNECTOR>
+                              repoName: bespoke-ai-factory-spike
+                              gitFetchType: Branch
+                              branch: main
+                              paths:
+                                - repo/infra/terraform/envs/backend-<+pipeline.variables.environment>.hcl
+                      secretManagerRef: harnessSecretManager
+
+    - stage:
+        name: Plan Approval
+        identifier: plan_approval
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: HarnessApproval
+                  name: Review Terraform plan
+                  identifier: review_plan
+                  timeout: 1d
+                  spec:
+                    approvalMessage: |
+                      Review the Terraform plan for environment <+pipeline.variables.environment>
+                      before applying. Plan output is attached to the previous stage.
+                    includePipelineExecutionHistory: true
+                    approvers:
+                      userGroups:
+                        - <PLATFORM_APPROVERS_GROUP>
+                      minimumCount: 1
+                      disallowPipelineExecutor: false
+
+    - stage:
+        name: Terraform Apply
+        identifier: tf_apply
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: TerraformApply
+                  name: Apply
+                  identifier: apply
+                  timeout: 45m
+                  spec:
+                    provisionerIdentifier: aifactory_<+pipeline.variables.environment>
+                    configuration:
+                      type: InheritFromPlan
+            rollbackSteps:
+              - step:
+                  type: TerraformRollback
+                  name: Rollback
+                  identifier: rollback
+                  timeout: 30m
+                  spec:
+                    provisionerIdentifier: aifactory_<+pipeline.variables.environment>

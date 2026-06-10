@@ -159,6 +159,17 @@ Three transformation definitions are in `transformation_definitions/`:
 └── .env.example
 ```
 
+## AWS Deployment (dev / sit / preprod / prod)
+
+Production deployment runs on **ECS Fargate** provisioned by **Terraform** and
+delivered through **Harness** pipelines with SAST/DAST gates and **canary**
+releases to preprod/prod:
+
+- [docs/deployment-guide.md](docs/deployment-guide.md) — end-to-end runbook
+- [docs/architecture.drawio](docs/architecture.drawio) — diagrams (open in draw.io)
+- [infra/terraform/](infra/terraform/) — one stack, four env var-files
+- [harness/](harness/) — CI (build + SAST + Trivy), infra (TF plan/approve/apply), CD (canary + ZAP DAST)
+
 ## Docs
 
 - [AWS Transform Custom](https://docs.aws.amazon.com/transform/latest/userguide/custom.html)
