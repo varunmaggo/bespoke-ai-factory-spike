@@ -40,7 +40,7 @@ jobs:
           git checkout -b "$BRANCH"
           echo "Co-authored tiny change $(date)" >> coauth.txt
           git add coauth.txt
-          git commit -m $'Add co-authored change\n\nCo-authored-by: github-actions[bot] <actions@github.com>'
+          git commit -m $'Add co-authored change\n\nCo-authored-by: vbot-droid <292420162+vbot-droid@users.noreply.github.com>'
           git push --set-upstream origin "$BRANCH"
 
       - name: Create PR and merge
