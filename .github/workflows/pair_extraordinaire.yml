@@ -30,9 +30,11 @@ jobs:
           fi
 
       - name: Create branch and commit co-authored change
+        id: create_branch
         run: |
           set -e
           BRANCH=auto/coauthor-$(date +%s%N)
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           git checkout -b "$BRANCH"
@@ -46,16 +48,14 @@ jobs:
         with:
           github-token: ${{ env.ACTION_TOKEN }}
           script: |
+            const branch = '${{ steps.create_branch.outputs.branch }}';
             const { data: repo } = await github.rest.repos.get({ owner: context.repo.owner, repo: context.repo.repo });
             const defaultBranch = repo.default_branch;
-            const branches = await github.rest.repos.listBranches({ owner: context.repo.owner, repo: context.repo.repo });
-            const newBranch = branches.data.find(b => b.name.startsWith('auto/coauthor-'))?.name;
-            if (!newBranch) throw new Error('No auto branch found');
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: 'Auto co-authored PR',
-              head: newBranch,
+              head: branch,
               base: defaultBranch,
               body: 'Automated co-authored PR created to earn Pair Extraordinaire badge.'
             });
