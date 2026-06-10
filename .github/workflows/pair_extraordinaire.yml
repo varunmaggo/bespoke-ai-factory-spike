@@ -32,7 +32,7 @@ jobs:
       - name: Create branch and commit co-authored change
         run: |
           set -e
-          BRANCH=auto/coauthor-$(date +%s)
+          BRANCH=auto/coauthor-$(date +%s%N)
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
           git checkout -b "$BRANCH"
