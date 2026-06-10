@@ -1,0 +1,27 @@
+name: Quickdraw Badge
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main, master ]
+
+jobs:
+  create-and-close-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create and close issue
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: 'Quickdraw: temporary issue',
+              body: 'Temporary issue created by workflow to earn Quickdraw badge.'
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.data.number,
+              state: 'closed'
+            });
