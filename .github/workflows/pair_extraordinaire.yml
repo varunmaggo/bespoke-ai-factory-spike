@@ -21,9 +21,12 @@ jobs:
           persist-credentials: false
 
       - name: Configure auth for git push
-        if: ${{ secrets.PAT_TOKEN != '' }}
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          git remote set-url origin https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git
+          if [ -n "$PAT_TOKEN" ]; then
+            git remote set-url origin https://x-access-token:$PAT_TOKEN@github.com/${{ github.repository }}.git
+          fi
 
       - name: Create branch and commit co-authored change
         run: |
