@@ -4,16 +4,21 @@ A production-ready reference architecture for building composable, observable AI
 
 ## Architecture
 
-```
+```text
 Client (Spring :8080)
     └── AWS Kiro Agent Spec
-            ├── 1. retrieve    → RAG Service :8001   (OpenSearch + Neo4j)
-            ├── 2. enrich      → Knowledge Graph      (Neo4j)
-            ├── 3. transform   → AWS Transform CLI    (atx custom def exec)
+            ├── 1. retrieve    → RAG Service :8001        (OpenSearch + Neo4j)
+            ├── 2. enrich      → Knowledge Graph           (Neo4j)
+            ├── 3. transform   → Transform Service :8003   (atx custom def exec,
+            │                                               local fallback)
             ├── 4. generate    → Claude Sonnet
-            └── 5. validate    → Eval Service :8002   (DeepEval + LLM-Judge)
+            └── 5. validate    → Eval Service :8002        (DeepEval + LLM-Judge)
 
 Observability: OTel Collector → Prometheus / Jaeger / CloudWatch / Grafana
+
+AWS:  Terraform (ECS Fargate, ALB, OpenSearch, Neo4j+EFS) deployed via Harness
+      dev → sit → preprod → prod with SAST/DAST gates and canary releases
+      — see docs/deployment-guide.md and docs/architecture.drawio
 ```
 
 ## Quick Start
