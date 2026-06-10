@@ -24,7 +24,9 @@ git push -u origin main
 ```
 
 Notes
-- Workflows use the provided `GITHUB_TOKEN`. Make the repo public and allow Actions to run. If your account uses branch protection rules, the auto-merge step might be blocked.
+- Workflows use the provided `GITHUB_TOKEN` by default, and will also use a `PAT_TOKEN` secret if you add one.
+- If your repository blocks Actions from creating pull requests, add a repository secret named `PAT_TOKEN` with a personal access token that has `repo` scope.
+- Make the repo public and allow Actions to run. If your account uses branch protection rules, the auto-merge step might be blocked.
 - Badges are awarded by GitHub and may take a few minutes to appear on your profile.
 
 Enjoy — tell me when you've pushed and I'll suggest the best workflow to run first.
