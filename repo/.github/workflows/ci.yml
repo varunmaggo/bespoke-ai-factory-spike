@@ -174,7 +174,7 @@ jobs:
       - name: Build and push RAG service
         uses: docker/build-push-action@v5
         with:
-          context:   services/rag/
+          context:   .
           file:      services/rag/Dockerfile
           push:      ${{ github.ref == 'refs/heads/main' }}
           tags:      ghcr.io/${{ github.repository }}/rag-service:${{ github.sha }}
@@ -184,10 +184,18 @@ jobs:
       - name: Build and push Eval service
         uses: docker/build-push-action@v5
         with:
-          context:   services/eval/
+          context:   .
           file:      services/eval/Dockerfile
           push:      ${{ github.ref == 'refs/heads/main' }}
           tags:      ghcr.io/${{ github.repository }}/eval-service:${{ github.sha }}
+
+      - name: Build and push Transform service
+        uses: docker/build-push-action@v5
+        with:
+          context:   .
+          file:      services/transform/Dockerfile
+          push:      ${{ github.ref == 'refs/heads/main' }}
+          tags:      ghcr.io/${{ github.repository }}/transform-service:${{ github.sha }}
 
       - name: Build and push Spring service
         uses: docker/build-push-action@v5

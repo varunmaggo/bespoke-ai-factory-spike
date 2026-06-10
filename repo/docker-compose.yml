@@ -5,8 +5,8 @@ services:
 
   rag-service:
     build:
-      context: ./services/rag
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/rag/Dockerfile
     ports:
       - "8001:8001"
     environment:
@@ -53,8 +53,8 @@ services:
   # AWS Transform service wrapper (local CLI runner)
   transform-service:
     build:
-      context: ./services/transform
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/transform/Dockerfile
     ports:
       - "8003:8003"
     volumes:
@@ -65,6 +65,11 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME:    transform-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   spring-service:
     build:
