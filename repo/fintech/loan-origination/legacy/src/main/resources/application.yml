@@ -1,0 +1,10 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: loan-origination-legacy
+
+bureau:
+  soap:
+    url: ${BUREAU_SOAP_URL:http://localhost:9998/bureau/soap}

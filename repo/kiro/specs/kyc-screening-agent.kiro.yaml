@@ -1,0 +1,190 @@
+apiVersion: kiro.dev/v1
+kind: AgentSpec
+metadata:
+  name: kyc-screening-agent
+  namespace: fintech
+  labels:
+    team: financial-crime
+    version: "1.0.0"
+spec:
+  description: |
+    Target state for fintech/kyc-onboarding (fintech-rules-to-agentic-rag).
+    Replaces exact-match watchlist screening with agentic RAG: semantic
+    search over the sanctions corpus, knowledge-graph alias and ownership
+    resolution, PII redaction via AWS Transform before the LLM sees the
+    case, a cited risk narrative from Claude, and an eval gate on
+    faithfulness. Fails CLOSED: any pipeline failure refers the case to a
+    human analyst.
+
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-20250514
+    parameters:
+      max_tokens: 4096
+      temperature: 0.0
+      system: |
+        You are a sanctions screening analyst. Assess the applicant ONLY
+        against the provided list entries and graph matches. Cite every
+        claim as [LIST-ENTRY-ID]. Classify into PASS, REVIEW or BLOCK with a
+        calibrated risk score. Spelling variants, transliterations and
+        aliases of listed parties MUST be treated as potential matches.
+        Never clear an applicant on evidence you were not given.
+
+  tools:
+    - name: vector_search
+      description: Semantic + fuzzy search over OFAC/HMT/EU consolidated lists and internal watchlists
+      type: function
+      parameters:
+        query:
+          type: string
+          required: true
+        top_k:
+          type: integer
+          default: 20
+        filters:
+          type: object
+          required: false
+          description: 'e.g. {"corpus": "sanctions-lists"}'
+
+    - name: graph_query
+      description: Cypher over the entity graph (aliases, transliterations, associates, ownership)
+      type: function
+      parameters:
+        cypher:
+          type: string
+          required: true
+        params:
+          type: object
+          required: false
+
+    - name: aws_transform
+      description: Redact applicant PII not needed for matching before LLM reasoning
+      type: function
+      parameters:
+        definition_name:
+          type: string
+          required: true
+        payload:
+          type: object
+          required: true
+
+    - name: eval_response
+      description: Score the risk narrative for faithfulness to the cited evidence
+      type: function
+      parameters:
+        response:
+          type: string
+          required: true
+        question:
+          type: string
+          required: true
+        context:
+          type: string
+          required: true
+
+  steps:
+    - id: retrieve_candidates
+      description: Fuzzy/semantic candidate matches from the sanctions corpus
+      tool: vector_search
+      input:
+        query: "{{ request.applicant.full_name }} {{ request.applicant.date_of_birth }} {{ request.applicant.nationality }}"
+        top_k: 20
+        filters:
+          corpus: sanctions-lists
+
+    - id: resolve_entities
+      description: Expand candidates through aliases, transliterations and ownership chains
+      tool: graph_query
+      dependsOn: [retrieve_candidates]
+      input:
+        cypher: |
+          MATCH (e:ListedEntity) WHERE e.id IN $candidate_ids
+          OPTIONAL MATCH (e)-[:ALIAS_OF|TRANSLITERATION_OF*1..2]-(alias:Entity)
+          OPTIONAL MATCH (e)-[:OWNS|CONTROLS*1..3]-(linked:Entity)
+          RETURN e.id as id, e.name as name, e.list_source as list,
+                 collect(DISTINCT alias.name) as aliases,
+                 collect(DISTINCT linked.name) as linked_parties
+        params:
+          candidate_ids: "{{ retrieve_candidates.output.doc_ids }}"
+
+    - id: redact
+      description: Strip PII not required for adjudication before LLM reasoning
+      tool: aws_transform
+      dependsOn: [resolve_entities]
+      config:
+        definition_name: enterprise-context-normaliser
+      input:
+        payload:
+          applicant: "{{ request.applicant }}"
+          candidates: "{{ retrieve_candidates.output.chunks }}"
+          graph_matches: "{{ resolve_entities.output }}"
+
+    - id: adjudicate
+      description: Generate the cited risk narrative and PASS/REVIEW/BLOCK classification
+      dependsOn: [redact]
+      input:
+        messages:
+          - role: user
+            content: |
+              Applicant (redacted):
+              {{ redact.output.formatted_context }}
+
+              Classify PASS / REVIEW / BLOCK with risk score 0.0-1.0 and a
+              narrative citing each piece of evidence as [LIST-ENTRY-ID].
+
+    - id: validate
+      description: Eval-gate the narrative; retry once, then fail closed to REVIEW
+      tool: eval_response
+      dependsOn: [adjudicate]
+      input:
+        response: "{{ adjudicate.output.content }}"
+        question: "Is this screening decision faithful to the cited list entries?"
+        context: "{{ redact.output.formatted_context }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          condition: "score < 0.8"
+        onExhausted:
+          override:
+            risk_band: REVIEW
+            reason: "Eval gate not satisfied — manual review required"
+
+  hooks:
+    onStart:
+      - emit_otel_span:
+          name: "kyc.screening.start"
+          attributes:
+            nationality: "{{ request.applicant.nationality }}"
+
+    onFinish:
+      - emit_audit_event:
+          stream: "kyc-screening-decisions"
+          payload:
+            risk_band: "{{ adjudicate.output.risk_band }}"
+            risk_score: "{{ adjudicate.output.risk_score }}"
+            eval_score: "{{ validate.output.score }}"
+            evidence_ids: "{{ resolve_entities.output.id }}"
+      - emit_otel_span:
+          name: "kyc.screening.finish"
+          attributes:
+            risk_band: "{{ adjudicate.output.risk_band }}"
+            eval_score: "{{ validate.output.score }}"
+
+    onError:
+      # Fail CLOSED — never auto-pass on pipeline failure
+      - return_output:
+          risk_band: REVIEW
+          narrative: "Automated screening unavailable — manual review required"
+      - alert_pagerduty:
+          severity: "warning"
+          summary: "KYC screening agent error: {{ error.message }}"
+          dedup_key: "kyc-screening"
+
+  output:
+    risk_band: "{{ adjudicate.output.risk_band }}"
+    risk_score: "{{ adjudicate.output.risk_score }}"
+    matches: "{{ adjudicate.output.matches }}"
+    narrative: "{{ adjudicate.output.content }}"
+    eval_score: "{{ validate.output.score }}"
+    eval_passed: "{{ validate.output.passed }}"
+    audit_event_id: "{{ hooks.onFinish.emit_audit_event.id }}"

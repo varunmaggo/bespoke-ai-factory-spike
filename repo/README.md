@@ -120,13 +120,32 @@ pytest evals/ -v -m deepeval
 
 ## AWS Transform Definitions
 
-Three transformation definitions are in `transformation_definitions/`:
+Six transformation definitions are in `transformation_definitions/`:
 
 | Definition | Pattern | Purpose |
 |---|---|---|
 | `enterprise-context-normaliser` | Code Refactoring | PII redaction, date normalisation, SAP flattening, context truncation |
 | `java-spring-to-spring-ai` | Framework Upgrade | Migrate legacy Spring AI code to Spring AI 1.x |
 | `eval-dataset-updater` | Custom | Regenerate synthetic eval test cases on schema change |
+| `fintech-java-spring2-to-spring3` | Framework Upgrade | Boot 2.7→3.2, WebClient + Resilience4j, BigDecimal money, OTel |
+| `fintech-rules-to-agentic-rag` | Re-architecture | Rule engines → Kiro agentic RAG with eval gates |
+| `fintech-soap-to-rest` | Integration swap | SOAP bureau client → REST anti-corruption layer (strangler-fig) |
+
+## Fintech Legacy Estate (modernisation demo)
+
+`fintech/` contains six legacy Spring Boot 2.7 fintech microservices —
+payment gateway, double-entry ledger, KYC onboarding, fraud detection, loan
+origination and FX settlement — each annotated with `PROBLEM:`/`MIGRATE TO:`
+markers, plus a fully modernised payment gateway as the committed reference
+output of `fintech-java-spring2-to-spring3`. Three Kiro agent specs drive the
+story: a `fintech-modernisation-agent` that migrates one service per run
+(inventory → RAG playbook retrieval → atx exec → parity tests → judged PR),
+and the two agentic target-state services (`kyc-screening-agent`,
+`fraud-triage-agent`). See [fintech/README.md](fintech/README.md).
+
+```bash
+mvn -f fintech/pom.xml clean test   # builds all 7 modules, no AWS access needed
+```
 
 ## Project Layout
 
@@ -140,7 +159,17 @@ Three transformation definitions are in `transformation_definitions/`:
 │   └── eval-dataset-updater/
 ├── kiro/
 │   └── specs/
-│       └── enterprise-rag-agent.kiro.yaml
+│       ├── enterprise-rag-agent.kiro.yaml
+│       ├── fintech-modernisation-agent.kiro.yaml
+│       ├── kyc-screening-agent.kiro.yaml
+│       └── fraud-triage-agent.kiro.yaml
+├── fintech/                        # Legacy fintech estate + modernised exemplar
+│   ├── payment-gateway/            #   legacy/ + modern/ (reference migration pair)
+│   ├── ledger-service/
+│   ├── kyc-onboarding/
+│   ├── fraud-detection/
+│   ├── loan-origination/
+│   └── fx-settlement/
 ├── services/
 │   ├── rag/                        # Python RAG microservice (FastAPI :8001)
 │   ├── eval/                       # Python eval microservice (FastAPI :8002)

@@ -1,0 +1,17 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: payment-gateway-legacy
+
+acquirer:
+  url: ${ACQUIRER_URL:http://localhost:9999/acquirer}
+  max-attempts: 3
+
+# PROBLEM: health endpoint only — no prometheus metrics, no tracing config
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
