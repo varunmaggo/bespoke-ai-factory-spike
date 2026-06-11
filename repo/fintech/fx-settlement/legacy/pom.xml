@@ -5,7 +5,8 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    LEGACY SERVICE — Spring Boot 2.7.x FX rates & settlement.
+    LEGACY SERVICE — Spring Boot 2.5.14 FX rates & settlement.
+    CVE profile: CVE-2020-8908 / CVE-2018-10237 (Guava 24.1-jre). Spring 5.3.x patched for Spring4Shell.
     BEFORE state for AWS Transform definition: fintech-java-spring2-to-spring3.
 
     Key problems with this code:
@@ -21,7 +22,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.18</version>
+    <version>2.5.14</version>
     <relativePath/>
   </parent>
 
@@ -49,6 +50,15 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- VULNERABLE (CVE-2020-8908 / CVE-2018-10237): Guava 24.1-jre temp-dir
+         information disclosure and unbounded allocation. Remediated to 32.x by
+         fintech-cve-remediation. -->
+    <dependency>
+      <groupId>com.google.guava</groupId>
+      <artifactId>guava</artifactId>
+      <version>24.1-jre</version>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

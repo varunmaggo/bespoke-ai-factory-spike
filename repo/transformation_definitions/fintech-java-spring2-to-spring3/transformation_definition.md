@@ -31,17 +31,26 @@ atx custom def exec \
 
 ## Step 1 — Upgrade pom.xml to Boot 3.2 / Java 21
 
+The estate spans a range of legacy Boot versions (2.1.18 → 2.6.15); the agent
+reads the actual `<version>` from each module rather than assuming one. The
+payment-gateway reference module is on 2.3.12.RELEASE.
+
 Before:
 ```xml
 <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.18</version>
+    <version>2.3.12.RELEASE</version>   <!-- varies per service: 2.1.18 .. 2.6.15 -->
 </parent>
 <properties>
     <java.version>17</java.version>
 </properties>
 ```
+
+> Security note: any module below Spring Framework 5.2.20 / 5.3.18 is exposed
+> to Spring4Shell (CVE-2022-22965); this upgrade closes it. Run
+> `fintech-cve-remediation` alongside to clear the standalone-library and
+> code-level CVEs the framework bump does not touch.
 
 After:
 ```xml

@@ -90,6 +90,17 @@
       ],
       "expected_output": "double becomes BigDecimal(scale 2, HALF_EVEN), the epsilon balance check becomes an exact comparison, and LocalDateTime becomes UTC Instant.",
       "tags": ["fintech", "transform"]
+    },
+    {
+      "id": "GOLD-009",
+      "status": "active",
+      "question": "How does the modernisation agent find and fix vulnerabilities during a migration, and when will it refuse to open a PR?",
+      "answer": "It runs a baseline scan (Trivy and OWASP dependency-check for dependency CVEs, Semgrep for code weaknesses), maps each finding to a remediation in the fintech-cve-remediation definition, applies the fix, then re-scans. It refuses to open the pull request unless the parity tests pass and the re-scan reports zero HIGH or CRITICAL findings.",
+      "context": [
+        "The fintech-modernisation-agent has scan_before and scan_after steps wrapping the transform. fintech-cve-remediation bumps or removes vulnerable dependencies (Log4Shell log4j-core 2.14.1, Text4Shell commons-text 1.9, SnakeYAML 1.30, commons-collections 3.2.1, Guava 24.1-jre) and applies code-level fixes (parameterised SQL, typed REST client, PAN tokenisation), while the Spring4Shell CVE-2022-22965 is closed by the Boot 3.2 framework upgrade. The agent's open_pr step is gated on judge score >= 0.8, tests green, and scan_after HIGH/CRITICAL count == 0."
+      ],
+      "expected_output": "It scans before and after with Trivy/OWASP/Semgrep, remediates via fintech-cve-remediation, and blocks the PR unless tests pass and zero HIGH/CRITICAL CVEs remain.",
+      "tags": ["fintech", "security", "cve"]
     }
   ]
 }

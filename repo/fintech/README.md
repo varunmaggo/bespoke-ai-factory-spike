@@ -7,14 +7,24 @@ existing **agentic RAG + eval** stack as the quality gate.
 
 ## The estate
 
-| Service | Port | Legacy sins (annotated in code) | Modernisation route |
-|---|---|---|---|
-| `payment-gateway` | 8081 | RestTemplate + `Thread.sleep` retry, in-memory idempotency map, `double` money, raw PAN, `javax.*` | `fintech-java-spring2-to-spring3` → **`payment-gateway/modern` (committed reference output, :9081)** |
-| `ledger-service` | 8082 | Concatenated SQL, `double` + epsilon balance check, non-transactional posting, `Thread.sleep` EOD batch | `fintech-java-spring2-to-spring3` |
-| `kyc-onboarding` | 8083 | Exact-match watchlist frozen in the binary, no narrative, no audit | `fintech-rules-to-agentic-rag` → `kiro/specs/kyc-screening-agent.kiro.yaml` |
-| `fraud-detection` | 8084 | If/else rule engine, magic thresholds, uncalibrated additive score, per-JVM velocity state | `fintech-rules-to-agentic-rag` → `kiro/specs/fraud-triage-agent.kiro.yaml` |
-| `loan-origination` | 8085 | Hand-built SOAP envelopes, regex response parsing, monolithic `decide()`, `-1` magic number | `fintech-soap-to-rest` |
-| `fx-settlement` | 8086 | `public static HashMap` rate cache, data races, `double` cross-rates, stale rates with no flag | `fintech-java-spring2-to-spring3` |
+| Service | Port | Boot | Legacy sins (annotated in code) | Modernisation route |
+|---|---|---|---|---|
+| `payment-gateway` | 8081 | 2.3.12 | RestTemplate + `Thread.sleep` retry, in-memory idempotency map, `double` money, raw PAN, `javax.*` | `fintech-java-spring2-to-spring3` → **`payment-gateway/modern` (committed reference output, :9081)** |
+| `ledger-service` | 8082 | 2.1.18 | Concatenated SQL, `double` + epsilon balance check, non-transactional posting, `Thread.sleep` EOD batch | `fintech-java-spring2-to-spring3` |
+| `kyc-onboarding` | 8083 | 2.6.15 | Exact-match watchlist frozen in the binary, no narrative, no audit | `fintech-rules-to-agentic-rag` → `kiro/specs/kyc-screening-agent.kiro.yaml` |
+| `fraud-detection` | 8084 | 2.4.13 | If/else rule engine, magic thresholds, uncalibrated additive score, per-JVM velocity state | `fintech-rules-to-agentic-rag` → `kiro/specs/fraud-triage-agent.kiro.yaml` |
+| `loan-origination` | 8085 | 2.2.13 | Hand-built SOAP envelopes, regex response parsing, monolithic `decide()`, `-1` magic number | `fintech-soap-to-rest` |
+| `fx-settlement` | 8086 | 2.5.14 | `public static HashMap` rate cache, data races, `double` cross-rates, stale rates with no flag | `fintech-java-spring2-to-spring3` |
+
+The six services are deliberately pinned to a **spread of old, CVE-bearing
+Spring Boot versions (2.1 → 2.6)** plus vulnerable standalone libraries, so a
+scanner reports a different critical set per service — the heterogeneous
+estate the factory agent has to handle. Each carries a `CVE profile:` note in
+its `pom.xml`. The full picture is in
+[`../transformation_definitions/fintech-cve-remediation/document_references/cve-inventory.md`](../transformation_definitions/fintech-cve-remediation/document_references/cve-inventory.md):
+Spring4Shell (CVE-2022-22965) on the four older services, plus Log4Shell
+(fraud), Text4Shell (loan), commons-collections deserialization (ledger),
+SnakeYAML (kyc) and Guava (fx).
 
 Every legacy class carries `PROBLEM:` / `MIGRATE TO:` annotations, and the
 unit tests include **DOCUMENTED GAP** cases that assert the broken behaviour
@@ -53,6 +63,22 @@ The three definitions live in `../transformation_definitions/`:
 | `fintech-java-spring2-to-spring3` | Framework upgrade | payment-gateway, ledger-service, fx-settlement (and as the baseline for the rest) |
 | `fintech-rules-to-agentic-rag` | Rules → Kiro agentic RAG | kyc-onboarding, fraud-detection |
 | `fintech-soap-to-rest` | Strangler-fig integration swap | loan-origination |
+| `fintech-cve-remediation` | Security remediation | whole estate — scan → map CVE → patch, runs alongside the framework upgrade |
+
+## Find and fix vulnerabilities on the fly
+
+`fintech-cve-remediation` scans each service (Trivy + OWASP dependency-check
+for dependency CVEs, Semgrep for code-level weaknesses), maps every finding to
+a remediation, and applies it — dependency bumps/removals plus the same code
+fixes the framework migration makes (parameterised SQL, typed REST client,
+PAN tokenisation). The framework upgrade closes the Spring-framework CVEs
+(Spring4Shell) as a side effect; this definition closes the standalone-library
+and code-level findings it doesn't touch.
+
+In the factory agent (`fintech-modernisation-agent`) this is two gated steps:
+a `scan_before` baseline and a `scan_after` re-scan, and **the agent refuses
+to open a PR while any HIGH/CRITICAL finding remains** — the same Trivy + ZAP
+DAST bar the Harness CD pipeline already enforces.
 
 ## Modernise at scale with the factory agent
 
@@ -61,12 +87,15 @@ one service per invocation:
 
 ```text
 inventory (static analysis)
+  → scan_before (Trivy + OWASP DC + Semgrep — the CVE profile)
   → retrieve playbook via agentic RAG     (data/sample-docs/fintech-modernisation-playbook.md)
-  → select AWS Transform definition       (Claude, temperature 0)
-  → atx custom def exec
+  → select AWS Transform definition(s)    (Claude, temperature 0)
+  → atx custom def exec                    (framework / architecture)
+  → atx custom def exec                    (fintech-cve-remediation, if CVEs found)
   → mvn test (behaviour parity)
+  → scan_after (must report 0 HIGH/CRITICAL)
   → LLM-judge diff review ≥ 0.8
-  → draft PR
+  → draft PR  (blocked unless tests green AND 0 HIGH/CRITICAL CVEs)
 ```
 
 The two runtime agents it produces for the rules-based services:

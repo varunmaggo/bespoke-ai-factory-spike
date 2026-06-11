@@ -5,7 +5,8 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    LEGACY SERVICE — Spring Boot 2.7.x card payment gateway.
+    LEGACY SERVICE — Spring Boot 2.3.12.RELEASE card payment gateway.
+    CVE profile: CVE-2022-22965 (Spring4Shell, via Spring Framework 5.2.15).
     BEFORE state for AWS Transform definition: fintech-java-spring2-to-spring3.
 
     Key problems with this code:
@@ -20,7 +21,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.18</version>
+    <version>2.3.12.RELEASE</version>
     <relativePath/>
   </parent>
 

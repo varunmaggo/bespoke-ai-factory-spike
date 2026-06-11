@@ -5,8 +5,10 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    LEGACY SERVICE — Spring Boot 2.7.x KYC onboarding with rule-based
+    LEGACY SERVICE — Spring Boot 2.6.15 KYC onboarding with rule-based
     sanctions screening.
+    CVE profile: CVE-2022-1471 (SnakeYAML 1.30). Spring 5.3.x here is already
+    patched for Spring4Shell — the security value is the standalone dep CVE.
     BEFORE state for AWS Transform definition: fintech-rules-to-agentic-rag.
 
     Key problems with this code:
@@ -24,7 +26,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.18</version>
+    <version>2.6.15</version>
     <relativePath/>
   </parent>
 
@@ -52,6 +54,15 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- VULNERABLE (CVE-2022-1471): SnakeYAML 1.30 unsafe deserialization in
+         Constructor. Overrides the Boot-managed version. Remediated to 2.x by
+         fintech-cve-remediation. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>1.30</version>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>

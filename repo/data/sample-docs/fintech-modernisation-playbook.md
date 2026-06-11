@@ -62,6 +62,27 @@ Split "no data" (`Optional.empty()`) from "provider failure" (typed
 exception) — the legacy `-1` conflated them and silently mis-routed
 decisions.
 
+## Anti-pattern: known-vulnerable dependencies and code (CVEs)
+
+Apply `fintech-cve-remediation` alongside the framework upgrade. Scan with
+Trivy + OWASP dependency-check (dependency CVEs) and Semgrep (code-level).
+The framework upgrade closes Spring-framework CVEs (e.g. Spring4Shell
+CVE-2022-22965) as a side effect; the remediation definition closes the rest:
+
+- Log4Shell (CVE-2021-44228): remove `log4j-core` 2.14.1 (Logback is the Boot
+  default) or pin `log4j2.version` to 2.17.1.
+- Text4Shell (CVE-2022-42889): `commons-text` 1.9 → 1.10.0.
+- Commons Collections deserialization (CVE-2015-7501): 3.2.1 → 3.2.2 / remove.
+- SnakeYAML (CVE-2022-1471): 1.30 → 2.x with `SafeConstructor`.
+- Guava (CVE-2020-8908 / CVE-2018-10237): 24.1-jre → 33.x / remove.
+- Code-level: parameterise SQL (CWE-89), replace string-built XML with a typed
+  client (CWE-91/611), tokenise/mask the PAN (CWE-312 / PCI DSS 3.4).
+
+Non-negotiable gate: re-scan after remediation must report **zero HIGH or
+CRITICAL** findings, or the migration does not proceed to a PR. Learning from
+the estate: a mixed-version fleet means each service has a different critical
+set — never assume one uniform bump fixes everything; scan each module.
+
 ## Verification standard (all migrations)
 
 1. `mvn test` green on legacy and migrated modules; parity scenarios identical.

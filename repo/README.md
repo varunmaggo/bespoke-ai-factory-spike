@@ -120,28 +120,33 @@ pytest evals/ -v -m deepeval
 
 ## AWS Transform Definitions
 
-Six transformation definitions are in `transformation_definitions/`:
+Seven transformation definitions are in `transformation_definitions/`:
 
 | Definition | Pattern | Purpose |
 |---|---|---|
 | `enterprise-context-normaliser` | Code Refactoring | PII redaction, date normalisation, SAP flattening, context truncation |
 | `java-spring-to-spring-ai` | Framework Upgrade | Migrate legacy Spring AI code to Spring AI 1.x |
 | `eval-dataset-updater` | Custom | Regenerate synthetic eval test cases on schema change |
-| `fintech-java-spring2-to-spring3` | Framework Upgrade | Boot 2.7→3.2, WebClient + Resilience4j, BigDecimal money, OTel |
+| `fintech-java-spring2-to-spring3` | Framework Upgrade | Boot 2.x→3.2, WebClient + Resilience4j, BigDecimal money, OTel |
 | `fintech-rules-to-agentic-rag` | Re-architecture | Rule engines → Kiro agentic RAG with eval gates |
 | `fintech-soap-to-rest` | Integration swap | SOAP bureau client → REST anti-corruption layer (strangler-fig) |
+| `fintech-cve-remediation` | Security remediation | Scan (Trivy/OWASP/Semgrep) → map CVE → patch deps + code, gated to 0 HIGH/CRITICAL |
 
 ## Fintech Legacy Estate (modernisation demo)
 
-`fintech/` contains six legacy Spring Boot 2.7 fintech microservices —
-payment gateway, double-entry ledger, KYC onboarding, fraud detection, loan
-origination and FX settlement — each annotated with `PROBLEM:`/`MIGRATE TO:`
-markers, plus a fully modernised payment gateway as the committed reference
-output of `fintech-java-spring2-to-spring3`. Three Kiro agent specs drive the
-story: a `fintech-modernisation-agent` that migrates one service per run
-(inventory → RAG playbook retrieval → atx exec → parity tests → judged PR),
-and the two agentic target-state services (`kyc-screening-agent`,
-`fraud-triage-agent`). See [fintech/README.md](fintech/README.md).
+`fintech/` contains six legacy fintech microservices — payment gateway,
+double-entry ledger, KYC onboarding, fraud detection, loan origination and FX
+settlement — pinned to a spread of old, CVE-bearing Spring Boot versions
+(2.1 → 2.6) and annotated with `PROBLEM:`/`MIGRATE TO:` markers, plus a fully
+modernised payment gateway as the committed reference output of
+`fintech-java-spring2-to-spring3`. Three Kiro agent specs drive the story: a
+`fintech-modernisation-agent` that migrates one service per run (inventory →
+**vulnerability scan** → RAG playbook retrieval → atx exec → CVE remediation →
+parity tests → **re-scan gate** → judged PR), and the two agentic
+target-state services (`kyc-screening-agent`, `fraud-triage-agent`). The
+estate's CVE profile and remediations are catalogued in
+[`transformation_definitions/fintech-cve-remediation/document_references/cve-inventory.md`](transformation_definitions/fintech-cve-remediation/document_references/cve-inventory.md).
+See [fintech/README.md](fintech/README.md).
 
 ```bash
 mvn -f fintech/pom.xml clean test   # builds all 7 modules, no AWS access needed

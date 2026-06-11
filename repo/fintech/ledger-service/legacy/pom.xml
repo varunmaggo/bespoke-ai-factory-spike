@@ -5,7 +5,8 @@
   <modelVersion>4.0.0</modelVersion>
 
   <!--
-    LEGACY SERVICE — Spring Boot 2.7.x double-entry ledger.
+    LEGACY SERVICE — Spring Boot 2.1.18.RELEASE double-entry ledger.
+    CVE profile: CVE-2022-22965 (Spring4Shell), CVE-2015-7501 (commons-collections 3.2.1).
     BEFORE state for AWS Transform definition: fintech-java-spring2-to-spring3.
 
     Key problems with this code:
@@ -19,7 +20,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>2.7.18</version>
+    <version>2.1.18.RELEASE</version>
     <relativePath/>
   </parent>
 
@@ -55,6 +56,24 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-validation</artifactId>
     </dependency>
+    <!-- VULNERABLE (CVE-2015-7501): Apache Commons Collections 3.2.1 unsafe
+         deserialization (InvokerTransformer gadget). Remediated to 3.2.2 by
+         fintech-cve-remediation. -->
+    <dependency>
+      <groupId>commons-collections</groupId>
+      <artifactId>commons-collections</artifactId>
+      <version>3.2.1</version>
+    </dependency>
+
+    <!-- Boot 2.1 starter-test ships JUnit 4 only; add JUnit 5 explicitly so
+         the Jupiter tests run on this oldest baseline. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.8.2</version>
+      <scope>test</scope>
+    </dependency>
+
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
