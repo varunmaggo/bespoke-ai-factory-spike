@@ -1,0 +1,13 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: ledger-service-legacy
+  datasource:
+    url: jdbc:h2:mem:ledger;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+
+ledger:
+  eod:
+    cron: "0 0 22 * * *"

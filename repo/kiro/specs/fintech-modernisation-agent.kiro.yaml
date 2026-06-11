@@ -1,0 +1,273 @@
+apiVersion: kiro.dev/v1
+kind: AgentSpec
+metadata:
+  name: fintech-modernisation-agent
+  namespace: ai-factory
+  labels:
+    team: platform-modernisation
+    version: "1.0.0"
+spec:
+  description: |
+    The "factory" agent: modernises one legacy fintech service per run.
+    Inventories the legacy codebase, retrieves the relevant modernisation
+    playbook and prior migration learnings via agentic RAG, selects and
+    executes the matching AWS Transform custom definition, verifies
+    behaviour parity with the legacy test suite, and opens a pull request —
+    gated on build, tests and an LLM-judge review of the diff.
+
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-20250514
+    parameters:
+      max_tokens: 8192
+      temperature: 0.0
+      system: |
+        You are a disciplined modernisation engineer. You migrate exactly one
+        service per run. You never change business behaviour: the legacy test
+        scenarios must pass identically against the modernised service. When
+        the playbook and the code disagree, trust the code and flag the
+        playbook drift in the PR description.
+
+  tools:
+    - name: code_inventory
+      description: Static analysis of a legacy module — frameworks, versions, anti-patterns
+      type: function
+      parameters:
+        source_path:
+          type: string
+          required: true
+          description: Path to the legacy module (e.g. fintech/ledger-service/legacy)
+
+    - name: vector_search
+      description: Hybrid search over modernisation playbooks, ADRs and prior migration retrospectives
+      type: function
+      parameters:
+        query:
+          type: string
+          required: true
+        top_k:
+          type: integer
+          default: 10
+        filters:
+          type: object
+          required: false
+          description: 'e.g. {"corpus": "modernisation-playbooks"}'
+
+    - name: aws_transform
+      description: Execute a published AWS Transform custom definition (atx custom def exec)
+      type: function
+      parameters:
+        definition_name:
+          type: string
+          required: true
+        source_path:
+          type: string
+          required: true
+        output_path:
+          type: string
+          required: true
+
+    - name: run_build
+      description: Run mvn clean test for a module and return the report
+      type: function
+      parameters:
+        module_path:
+          type: string
+          required: true
+
+    - name: security_scan
+      description: |
+        Run SCA + SAST over a module (Trivy dependency CVEs, OWASP
+        dependency-check, Semgrep code weaknesses) and return a normalised
+        findings report keyed by (package@version, cve) or (file, rule, line).
+      type: function
+      parameters:
+        module_path:
+          type: string
+          required: true
+        severity:
+          type: string
+          default: "HIGH,CRITICAL"
+          description: Minimum severity to report
+
+    - name: eval_response
+      description: LLM-judge scoring of the migration diff against the playbook
+      type: function
+      parameters:
+        response:
+          type: string
+          required: true
+        question:
+          type: string
+          required: true
+        context:
+          type: string
+          required: true
+
+    - name: open_pull_request
+      description: Push the migrated module on a branch and open a draft PR
+      type: function
+      parameters:
+        branch:
+          type: string
+          required: true
+        title:
+          type: string
+          required: true
+        body:
+          type: string
+          required: true
+
+  steps:
+    - id: inventory
+      description: Fingerprint the legacy service (framework versions, anti-patterns)
+      tool: code_inventory
+      input:
+        source_path: "{{ request.source_path }}"
+
+    - id: scan_before
+      description: Baseline vulnerability scan of the legacy module (the "before" CVE profile)
+      tool: security_scan
+      dependsOn: [inventory]
+      input:
+        module_path: "{{ request.source_path }}"
+        severity: "HIGH,CRITICAL"
+
+    - id: retrieve_playbook
+      description: Retrieve the playbook sections, CVE remediations and prior-migration learnings
+      tool: vector_search
+      dependsOn: [inventory, scan_before]
+      input:
+        query: |
+          Modernisation guidance for: {{ inventory.output.anti_patterns | join(', ') }}
+          ({{ inventory.output.framework }} {{ inventory.output.framework_version }});
+          remediate CVEs: {{ scan_before.output.cves | join(', ') }}
+        top_k: 10
+        filters:
+          corpus: modernisation-playbooks
+
+    - id: select_definition
+      description: Choose the AWS Transform definition(s) and execution order for this service
+      dependsOn: [retrieve_playbook]
+      input:
+        messages:
+          - role: user
+            content: |
+              Legacy inventory:
+              {{ inventory.output | tojson }}
+
+              Playbook context:
+              {{ retrieve_playbook.output.chunks }}
+
+              Open CVEs from the baseline scan:
+              {{ scan_before.output | tojson }}
+
+              Available definitions: fintech-java-spring2-to-spring3,
+              fintech-rules-to-agentic-rag, fintech-soap-to-rest,
+              fintech-cve-remediation. Always include fintech-cve-remediation
+              when the scan reports HIGH/CRITICAL findings the framework
+              upgrade alone will not close (standalone libraries, code-level).
+              Return the ordered list of definitions to apply and why.
+
+    - id: transform
+      description: Execute the selected framework/architecture AWS Transform definition
+      tool: aws_transform
+      dependsOn: [select_definition]
+      input:
+        definition_name: "{{ select_definition.output.primary_definition }}"
+        source_path: "{{ request.source_path }}"
+        output_path: "{{ request.output_path }}"
+
+    - id: remediate
+      description: Apply CVE remediation (dep bumps/removals + code-level fixes) on the migrated module
+      tool: aws_transform
+      dependsOn: [transform]
+      condition: "scan_before.output.high_or_critical_count > 0"
+      config:
+        definition_name: fintech-cve-remediation
+      input:
+        source_path: "{{ request.output_path }}"
+        output_path: "{{ request.output_path }}"
+
+    - id: verify
+      description: Build the migrated module and run behaviour-parity tests
+      tool: run_build
+      dependsOn: [remediate]
+      input:
+        module_path: "{{ request.output_path }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          condition: "exit_code != 0"
+
+    - id: scan_after
+      description: Re-scan the migrated module; the gate requires zero HIGH/CRITICAL findings
+      tool: security_scan
+      dependsOn: [verify]
+      input:
+        module_path: "{{ request.output_path }}"
+        severity: "HIGH,CRITICAL"
+
+    - id: judge_diff
+      description: LLM-judge reviews the diff for behaviour drift and playbook compliance
+      tool: eval_response
+      dependsOn: [scan_after]
+      input:
+        response: "{{ transform.output.diff_summary }}"
+        question: "Does this migration preserve business behaviour and follow the playbook?"
+        context: "{{ retrieve_playbook.output.chunks }}"
+
+    - id: open_pr
+      description: Open a draft PR with the parity report, CVE delta and judge verdict
+      tool: open_pull_request
+      dependsOn: [judge_diff]
+      # Security gate: never open a PR that still carries HIGH/CRITICAL CVEs
+      condition: >
+        judge_diff.output.score >= 0.8
+        and verify.output.exit_code == 0
+        and scan_after.output.high_or_critical_count == 0
+      input:
+        branch: "modernise/{{ inventory.output.service_name }}"
+        title: "Modernise {{ inventory.output.service_name }} via {{ select_definition.output.primary_definition }}"
+        body: |
+          Automated migration by fintech-modernisation-agent.
+
+          Definitions applied: {{ select_definition.output.ordered_definitions | join(', ') }}
+          Parity tests: {{ verify.output.tests_passed }}/{{ verify.output.tests_total }} passed
+          CVEs (HIGH/CRITICAL): {{ scan_before.output.high_or_critical_count }} → {{ scan_after.output.high_or_critical_count }}
+          Remediated: {{ scan_before.output.cves | join(', ') }}
+          Judge score: {{ judge_diff.output.score }}
+          Playbook drift flags: {{ judge_diff.output.flags | default('none') }}
+
+  hooks:
+    onStart:
+      - emit_otel_span:
+          name: "kiro.modernisation.start"
+          attributes:
+            source_path: "{{ request.source_path }}"
+
+    onFinish:
+      - emit_otel_span:
+          name: "kiro.modernisation.finish"
+          attributes:
+            judge_score: "{{ judge_diff.output.score }}"
+            tests_passed: "{{ verify.output.tests_passed }}"
+            cves_before: "{{ scan_before.output.high_or_critical_count }}"
+            cves_after: "{{ scan_after.output.high_or_critical_count }}"
+            pr_url: "{{ open_pr.output.url | default('not-opened') }}"
+
+    onError:
+      - alert_pagerduty:
+          severity: "info"
+          summary: "Modernisation run failed: {{ error.message }}"
+          dedup_key: "modernisation-{{ request.source_path }}"
+
+  output:
+    service: "{{ inventory.output.service_name }}"
+    definitions_applied: "{{ select_definition.output.ordered_definitions }}"
+    tests_passed: "{{ verify.output.tests_passed }}"
+    cves_before: "{{ scan_before.output.high_or_critical_count }}"
+    cves_after: "{{ scan_after.output.high_or_critical_count }}"
+    cves_remediated: "{{ scan_before.output.cves }}"
+    judge_score: "{{ judge_diff.output.score }}"
+    pr_url: "{{ open_pr.output.url | default(null) }}"

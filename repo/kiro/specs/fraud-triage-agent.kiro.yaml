@@ -1,0 +1,182 @@
+apiVersion: kiro.dev/v1
+kind: AgentSpec
+metadata:
+  name: fraud-triage-agent
+  namespace: fintech
+  labels:
+    team: fraud-ops
+    version: "1.0.0"
+spec:
+  description: |
+    Target state for fintech/fraud-detection (fintech-rules-to-agentic-rag).
+    Replaces the hardcoded if/else rule engine with agentic triage: retrieve
+    similar adjudicated cases and fraud typology documents via RAG, reason
+    over the transaction in that context, emit a calibrated risk band with a
+    cited narrative, and gate the narrative on faithfulness before the alert
+    reaches the analyst queue. Adjudication outcomes are re-ingested nightly
+    — the feedback loop the legacy engine never had.
+
+  model:
+    provider: anthropic
+    id: claude-sonnet-4-20250514
+    parameters:
+      max_tokens: 4096
+      temperature: 0.1
+      system: |
+        You are a fraud triage analyst. Assess the transaction ONLY against
+        the retrieved typologies and precedent cases, citing each as
+        [CASE-ID] or [TYPOLOGY-ID]. Output a risk band (LOW / ELEVATED /
+        HIGH) and a probability estimate with a narrative an analyst can act
+        on in under a minute. If the evidence is thin, say so — do not
+        manufacture certainty.
+
+  tools:
+    - name: vector_search
+      description: Hybrid search over adjudicated fraud cases and typology documents
+      type: function
+      parameters:
+        query:
+          type: string
+          required: true
+        top_k:
+          type: integer
+          default: 15
+        filters:
+          type: object
+          required: false
+
+    - name: graph_query
+      description: Cypher over the transaction graph (card, device, merchant, mule networks)
+      type: function
+      parameters:
+        cypher:
+          type: string
+          required: true
+        params:
+          type: object
+          required: false
+
+    - name: aws_transform
+      description: Normalise and PII-redact the transaction context before LLM reasoning
+      type: function
+      parameters:
+        definition_name:
+          type: string
+          required: true
+        payload:
+          type: object
+          required: true
+
+    - name: eval_response
+      description: Score the triage narrative for faithfulness to cited cases
+      type: function
+      parameters:
+        response:
+          type: string
+          required: true
+        question:
+          type: string
+          required: true
+        context:
+          type: string
+          required: true
+
+  steps:
+    - id: retrieve_precedents
+      description: Similar adjudicated cases + matching typology docs
+      tool: vector_search
+      input:
+        query: |
+          {{ request.transaction.merchant_category }} transaction
+          {{ request.transaction.amount }} {{ request.transaction.currency }}
+          from {{ request.transaction.country }};
+          velocity {{ request.context.txns_last_hour }} txns/hour
+        top_k: 15
+        filters:
+          corpus: fraud-cases
+
+    - id: network_context
+      description: Linked-entity signals (shared devices, mule-network proximity)
+      tool: graph_query
+      dependsOn: [retrieve_precedents]
+      input:
+        cypher: |
+          MATCH (c:Card {id: $card_id})
+          OPTIONAL MATCH (c)-[:USED_ON]->(d:Device)<-[:USED_ON]-(other:Card)
+          OPTIONAL MATCH (c)-[:PAID]->(m:Merchant)<-[:FLAGGED_AT]-(case:FraudCase)
+          RETURN count(DISTINCT other) as cards_sharing_device,
+                 collect(DISTINCT case.id)[..5] as merchant_case_ids
+        params:
+          card_id: "{{ request.transaction.card_id }}"
+
+    - id: normalise
+      description: Redact PII and normalise the combined context
+      tool: aws_transform
+      dependsOn: [network_context]
+      config:
+        definition_name: enterprise-context-normaliser
+      input:
+        payload:
+          transaction: "{{ request.transaction }}"
+          precedents: "{{ retrieve_precedents.output.chunks }}"
+          network: "{{ network_context.output }}"
+
+    - id: triage
+      description: Generate risk band, probability and cited narrative
+      dependsOn: [normalise]
+      input:
+        messages:
+          - role: user
+            content: |
+              Context:
+              {{ normalise.output.formatted_context }}
+
+              Triage this transaction: risk band (LOW/ELEVATED/HIGH),
+              probability estimate, and a cited narrative.
+
+    - id: validate
+      description: Eval-gate the narrative before it reaches the analyst queue
+      tool: eval_response
+      dependsOn: [triage]
+      input:
+        response: "{{ triage.output.content }}"
+        question: "Is this triage narrative faithful to the cited cases and typologies?"
+        context: "{{ normalise.output.formatted_context }}"
+      policy:
+        retry:
+          maxAttempts: 2
+          condition: "score < 0.75"
+
+  hooks:
+    onFinish:
+      - emit_audit_event:
+          stream: "fraud-triage-decisions"
+          payload:
+            risk_band: "{{ triage.output.risk_band }}"
+            probability: "{{ triage.output.probability }}"
+            eval_score: "{{ validate.output.score }}"
+      - emit_otel_span:
+          name: "fraud.triage.finish"
+          attributes:
+            risk_band: "{{ triage.output.risk_band }}"
+            eval_score: "{{ validate.output.score }}"
+
+    onError:
+      # Fail SAFE for payments flow: degrade to the legacy rule score so
+      # authorisations are never blocked by an agent outage, but mark the
+      # assessment as degraded for the analyst queue.
+      - return_output:
+          risk_band: "{{ request.fallback_rule_band | default('ELEVATED') }}"
+          degraded: true
+      - alert_pagerduty:
+          severity: "warning"
+          summary: "Fraud triage agent error: {{ error.message }}"
+          dedup_key: "fraud-triage"
+
+  output:
+    risk_band: "{{ triage.output.risk_band }}"
+    probability: "{{ triage.output.probability }}"
+    narrative: "{{ triage.output.content }}"
+    cited_cases: "{{ triage.output.citations }}"
+    eval_score: "{{ validate.output.score }}"
+    eval_passed: "{{ validate.output.passed }}"

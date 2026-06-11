@@ -1,0 +1,44 @@
+server:
+  port: 9081
+
+spring:
+  application:
+    name: payment-gateway
+  threads:
+    virtual:
+      enabled: true   # Java 21 virtual threads
+
+payments:
+  acquirer:
+    url: ${ACQUIRER_URL:http://localhost:9999/acquirer}
+  idempotency:
+    store: ${IDEMPOTENCY_STORE:memory}   # redis in prod
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      acquirer:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+  retry:
+    instances:
+      acquirer:
+        max-attempts: 3
+        wait-duration: 500ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2.0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus,metrics
+  tracing:
+    sampling:
+      probability: 1.0
+
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4317}

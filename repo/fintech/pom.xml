@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.fintech</groupId>
+    <artifactId>fintech-estate</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Fintech Legacy Estate — Modernisation Demo Aggregator</name>
+
+    <!--
+      Six legacy Spring Boot 2.7.x fintech services plus one fully modernised
+      exemplar (payment-gateway/modern). The legacy modules are the BEFORE
+      state for the AWS Transform definitions in ../transformation_definitions/:
+
+        fintech-java-spring2-to-spring3   payment-gateway, ledger-service,
+                                          fx-settlement (framework upgrade)
+        fintech-rules-to-agentic-rag      kyc-onboarding, fraud-detection
+                                          (rule engines → Kiro agentic RAG)
+        fintech-soap-to-rest              loan-origination (SOAP bureau client
+                                          → REST anti-corruption layer)
+
+      Build everything:   mvn -f fintech/pom.xml clean test
+    -->
+    <modules>
+        <module>payment-gateway/legacy</module>
+        <module>payment-gateway/modern</module>
+        <module>ledger-service/legacy</module>
+        <module>kyc-onboarding/legacy</module>
+        <module>fraud-detection/legacy</module>
+        <module>loan-origination/legacy</module>
+        <module>fx-settlement/legacy</module>
+    </modules>
+</project>

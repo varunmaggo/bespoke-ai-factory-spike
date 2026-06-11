@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    LEGACY SERVICE — Spring Boot 2.6.15 KYC onboarding with rule-based
+    sanctions screening.
+    CVE profile: CVE-2022-1471 (SnakeYAML 1.30). Spring 5.3.x here is already
+    patched for Spring4Shell — the security value is the standalone dep CVE.
+    BEFORE state for AWS Transform definition: fintech-rules-to-agentic-rag.
+
+    Key problems with this code:
+      - Exact string-match screening against a hardcoded watchlist — misses
+        aliases, transliterations, typos ("Jon" vs "John")
+      - Watchlist baked into the binary — a list update means a redeploy
+      - Binary BLOCK/PASS decision with no risk narrative for the analyst
+      - No audit trail of what evidence drove the decision
+
+    Target state: kyc/specs/kyc-screening-agent.kiro.yaml — agentic RAG over
+    the sanctions corpus with fuzzy entity resolution via the knowledge graph
+    and an eval gate on every screening narrative.
+  -->
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>2.6.15</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.fintech</groupId>
+  <artifactId>kyc-onboarding-legacy</artifactId>
+  <version>1.0.0-LEGACY</version>
+  <packaging>jar</packaging>
+  <name>KYC Onboarding (Legacy)</name>
+  <description>
+    Customer onboarding and sanctions screening — legacy rule-based
+    implementation. To be modernised via AWS Transform
+    (fintech-rules-to-agentic-rag) into a Kiro agentic RAG service.
+  </description>
+
+  <properties>
+    <java.version>17</java.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <!-- VULNERABLE (CVE-2022-1471): SnakeYAML 1.30 unsafe deserialization in
+         Constructor. Overrides the Boot-managed version. Remediated to 2.x by
+         fintech-cve-remediation. -->
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <version>1.30</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
