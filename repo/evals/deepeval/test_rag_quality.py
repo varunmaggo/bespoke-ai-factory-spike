@@ -20,7 +20,13 @@ pytestmark = pytest.mark.deepeval
 RAG_SERVICE_URL = "http://localhost:8001"
 GOLDEN_DATASET  = pathlib.Path(__file__).parent / "golden_dataset.json"
 
-evaluator = RAGEvaluator()
+
+@pytest.fixture(scope="module")
+def evaluator() -> RAGEvaluator:
+    # Constructed lazily: RAGEvaluator() builds DeepEval metric clients that
+    # require an LLM API key, which must not happen at collection time when
+    # the deepeval marker is deselected (the pytest.ini default).
+    return RAGEvaluator()
 
 
 def load_golden_dataset() -> list[dict]:
@@ -39,7 +45,7 @@ def load_golden_dataset() -> list[dict]:
 
 
 @pytest.mark.parametrize("test_case", load_golden_dataset())
-def test_rag_quality(test_case: dict):
+def test_rag_quality(evaluator: RAGEvaluator, test_case: dict):
     """Each golden dataset case must pass all DeepEval metric thresholds."""
     report = evaluator.run_evaluation(
         question=test_case["question"],
@@ -54,7 +60,7 @@ def test_rag_quality(test_case: dict):
 
 
 @pytest.mark.integration
-def test_live_query_eval():
+def test_live_query_eval(evaluator: RAGEvaluator):
     """Integration: hit the live RAG service and evaluate the response."""
     question = "What are our top Q3 priorities?"
     resp = httpx.post(f"{RAG_SERVICE_URL}/query", json={"query": question}, timeout=30)
