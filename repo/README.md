@@ -118,6 +118,30 @@ curl -X POST http://localhost:8080/api/v1/query \
 pytest evals/ -v -m deepeval
 ```
 
+## Observability
+
+Every service (`spring`, `rag`, `eval`, `transform`, `payment-gateway`) exports
+OTel traces to the collector, which fans out to:
+
+- **Jaeger** (http://localhost:16686) — full traces, e.g. `rag.query` →
+  `transform.exec` → `eval.evaluate`, PII-redacted.
+- **Prometheus** (http://localhost:9090) — via a `spanmetrics` connector that
+  turns *every* span into RED metrics with no app code changes:
+  `ai_factory_calls_total` / `ai_factory_duration_milliseconds_*`, labelled by
+  `service_name`, `span_name`, `status_code`, plus `transform.definition`,
+  `transform.engine` and `eval.passed` where the span sets them.
+- **AI-quality metrics** — the eval and RAG services additionally publish
+  `ai_factory_eval_gate_failures_total{reason}` (LLM-judge / DeepEval / both),
+  `ai_factory_eval_weighted_score_*` and `ai_factory_rag_sufficiency_score_*`
+  histograms, so the eval gate's pass rate and score trend are first-class
+  metrics, not just trace attributes.
+- **Grafana** (http://localhost:3000, `admin`/`admin`) — the `AI Factory —
+  Overview` dashboard (request/error rates, p95 latency per span, eval gate
+  failures, AI-quality score trends) and the `Fintech — Payment Gateway`
+  dashboard. Alert rules for both live in `otel/prometheus-alerts.yml`
+  (`EvalGateFailureSpike`, `RAGSufficiencyScoreLow`,
+  `AIFactorySpanErrorRateHigh`, plus the payments-specific alerts).
+
 ## AWS Transform Definitions
 
 Seven transformation definitions are in `transformation_definitions/`:

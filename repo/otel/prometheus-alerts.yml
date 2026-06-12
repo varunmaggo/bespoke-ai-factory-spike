@@ -92,3 +92,31 @@ groups:
           description: >
             Generated answers are repeatedly scoring below the eval threshold —
             check retrieval quality and recent corpus/model changes.
+
+      - alert: RAGSufficiencyScoreLow
+        expr: |
+          histogram_quantile(0.5,
+            sum(rate(ai_factory_rag_sufficiency_score_bucket[15m])) by (le)) < 0.6
+        for: 15m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Median RAG sufficiency score below 0.6 for 15m"
+          description: >
+            Retrieved context is repeatedly judged insufficient to answer —
+            check the vector/graph indices and recent corpus changes.
+
+      - alert: AIFactorySpanErrorRateHigh
+        expr: |
+          sum by (service_name, span_name) (rate(ai_factory_calls_total{status_code="STATUS_CODE_ERROR"}[5m]))
+            / sum by (service_name, span_name) (rate(ai_factory_calls_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "{{ $labels.service_name }} {{ $labels.span_name }} error rate above 10%"
+          description: >
+            Derived from span status codes via the OTel spanmetrics connector —
+            covers rag/eval/transform/spring/payment-gateway uniformly.
