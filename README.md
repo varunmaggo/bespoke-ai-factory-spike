@@ -1,6 +1,6 @@
 # Bespoke Agentic AI Factory — Spike
 
-A production-grade reference implementation for building **bespoke agentic AI
+A robust reference implementation for building **bespoke agentic AI
 pipelines** for Java Spring microservices: **AWS Kiro** agent specs, **AWS
 Transform Custom** modernisation, **Agentic RAG** (hybrid vector + knowledge
 graph), **LLM evaluation gates** (DeepEval + LLM-as-judge), and a full
