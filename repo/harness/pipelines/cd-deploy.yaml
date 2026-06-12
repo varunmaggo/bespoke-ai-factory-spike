@@ -7,7 +7,10 @@
 #  - ECS services/environments configured (one Harness Environment per env,
 #    Infrastructure Definition = ECS cluster ai-factory-<env> from Terraform)
 #  - Service "ai_factory_spring" (repeat pipeline or add parallel stages for
-#    rag/eval/transform, or template this pipeline per service)
+#    rag/eval/transform/payment-gateway, or template this pipeline per service;
+#    payment-gateway uses image ai-factory/payment-gateway, container port 9081,
+#    health check /actuator/health, ALB rule /api/v1/payments/* — all provisioned
+#    by infra/terraform)
 pipeline:
   name: ai-factory-cd
   identifier: ai_factory_cd

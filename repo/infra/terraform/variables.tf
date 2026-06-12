@@ -56,6 +56,7 @@ variable "services" {
     desired_count     = number
     public            = bool # exposed via the public ALB
     health_check_path = string
+    path_patterns     = optional(list(string), []) # ALB listener rule paths (public services; empty = default action only)
   }))
   default = {
     spring-service = {
@@ -65,6 +66,15 @@ variable "services" {
       desired_count     = 1
       public            = true
       health_check_path = "/actuator/health"
+    }
+    payment-gateway = {
+      port              = 9081
+      cpu               = 512
+      memory            = 1024
+      desired_count     = 1
+      public            = true
+      health_check_path = "/actuator/health"
+      path_patterns     = ["/api/v1/payments/*"]
     }
     rag-service = {
       port              = 8001
@@ -91,6 +101,18 @@ variable "services" {
       health_check_path = "/health"
     }
   }
+}
+
+variable "acquirer_url" {
+  description = "Card acquirer endpoint for the payment gateway (sandbox URL in lower envs)"
+  type        = string
+  default     = "https://acquirer-sandbox.example.com"
+}
+
+variable "alerts_email" {
+  description = "Email address subscribed to the CloudWatch alarm SNS topic (empty = no subscription)"
+  type        = string
+  default     = ""
 }
 
 variable "certificate_arn" {

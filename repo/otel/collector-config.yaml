@@ -13,6 +13,10 @@ receivers:
           static_configs:
             - targets: ["spring-service:8080"]
           metrics_path: /actuator/prometheus
+        - job_name: payment-gateway
+          static_configs:
+            - targets: ["payment-gateway:9081"]
+          metrics_path: /actuator/prometheus
 
 processors:
   batch:

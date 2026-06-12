@@ -41,6 +41,49 @@ mvn -f fintech/pom.xml clean test
 All seven modules (six legacy + the modern payment gateway) build with plain
 Maven Central dependencies — no AWS access needed.
 
+## Run & observe locally
+
+```bash
+# Modern gateway + stub acquirer + the existing observability stack
+docker compose --profile fintech up -d payment-gateway stub-acquirer prometheus grafana otel-collector jaeger
+
+curl -X POST localhost:9081/api/v1/payments/authorise \
+  -H 'Content-Type: application/json' \
+  -d '{"merchantId":"m-1","cardNumber":"4111111111111111","amount":19.99,"currency":"GBP","idempotencyKey":"demo-1"}'
+```
+
+What you get:
+
+- **Business metrics** at `:9081/actuator/prometheus` — `payments_authorised_total`,
+  `payments_declined_total`, `payments_acquirer_unavailable_total`,
+  `payments_idempotent_replays_total`, `payments_authorised_amount_total{currency}`,
+  and a `payments_acquirer_latency_seconds` histogram.
+- **Grafana board** `Fintech — Payment Gateway` (auth vs decline rate, decline
+  ratio, circuit-breaker state, acquirer p50/p95/p99, value by currency).
+- **Alert rules** in `otel/prometheus-alerts.yml`: `AcquirerCircuitOpen`,
+  `PaymentDeclineRateHigh`, `AcquirerOutageBurst`, `AcquirerLatencyP99High`,
+  plus platform-wide 5xx/latency/up alerts.
+- **Trace-correlated logs** — every request line carries `[traceId,spanId]`
+  matching the Jaeger trace, PAN already masked.
+- Stop `stub-acquirer` to watch retries → typed `ACQUIRER_UNAVAILABLE`
+  responses → the circuit-open panel and alert fire; restart it and the
+  gateway recovers without a restart.
+
+## Deploy to AWS
+
+The modern gateway ships through the same machinery as the rest of the stack:
+
+- **Terraform** (`infra/terraform/`): `payment-gateway` is in the `services`
+  map — ECR repo, Fargate task + ADOT sidecar, Cloud Map entry, target group,
+  and an ALB rule routing `/api/v1/payments/*`. Set `acquirer_url` per env;
+  `observability.tf` adds the SNS alert topic, CloudWatch alarms (ALB
+  5xx/p95/unhealthy-hosts, ECS CPU/memory, acquirer-outage log-metric burst)
+  and a CloudWatch dashboard.
+- **Harness** (`harness/pipelines/ci-build-and-scan.yaml`): the estate is unit
+  tested (`mvn -f fintech/pom.xml test`), the gateway image is built and
+  pushed to ECR and Trivy-scanned alongside the other services; promote with
+  the existing CD pipeline (canary in preprod/prod).
+
 ## Run a migration with AWS Transform
 
 ```bash

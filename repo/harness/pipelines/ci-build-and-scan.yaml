@@ -49,6 +49,16 @@ pipeline:
                     command: |
                       cd repo/spring
                       mvn -B --no-transfer-progress clean test
+              - step:
+                  type: Run
+                  name: Fintech estate build and test
+                  identifier: mvn_test_fintech
+                  spec:
+                    shell: Sh
+                    image: maven:3.9-eclipse-temurin-21
+                    command: |
+                      cd repo/fintech
+                      mvn -B --no-transfer-progress clean test
 
     # ── 2. SAST (Security Testing Orchestration) ─────────────────────────────
     - stage:
@@ -173,6 +183,19 @@ pipeline:
                           - <+codebase.commitSha>
                         dockerfile: repo/services/transform/Dockerfile
                         context: repo
+                  - step:
+                      type: BuildAndPushECR
+                      name: payment-gateway
+                      identifier: push_payment_gateway
+                      spec:
+                        connectorRef: <AWS_CONNECTOR>
+                        region: ap-southeast-2
+                        account: "<AWS_ACCOUNT_ID>"
+                        imageName: ai-factory/payment-gateway
+                        tags:
+                          - <+codebase.commitSha>
+                        dockerfile: repo/fintech/payment-gateway/Dockerfile
+                        context: repo/fintech/payment-gateway
 
     # ── 4. Container image scan ──────────────────────────────────────────────
     - stage:
@@ -215,6 +238,21 @@ pipeline:
                     image:
                       type: aws_ecr
                       name: ai-factory/rag-service
+                      tag: <+codebase.commitSha>
+                      region: ap-southeast-2
+                    advanced:
+                      fail_on_severity: critical
+              - step:
+                  type: AquaTrivy
+                  name: Trivy scan payment-gateway
+                  identifier: trivy_payment_gateway
+                  spec:
+                    mode: orchestration
+                    config: default
+                    privileged: true
+                    image:
+                      type: aws_ecr
+                      name: ai-factory/payment-gateway
                       tag: <+codebase.commitSha>
                       region: ap-southeast-2
                     advanced:

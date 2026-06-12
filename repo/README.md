@@ -150,7 +150,17 @@ See [fintech/README.md](fintech/README.md).
 
 ```bash
 mvn -f fintech/pom.xml clean test   # builds all 7 modules, no AWS access needed
+
+# Run the modern gateway end-to-end with a stub acquirer + full observability
+docker compose --profile fintech up -d payment-gateway stub-acquirer
 ```
+
+The modern gateway emits business metrics (`payments_*`), ships a dedicated
+Grafana board (`Fintech — Payment Gateway`), Prometheus alert rules
+(`otel/prometheus-alerts.yml`) and trace-correlated logs, and deploys to AWS
+via the shared Terraform stack (ECS Fargate + ALB path routing
+`/api/v1/payments/*`, CloudWatch alarms/dashboard in
+`infra/terraform/observability.tf`) and Harness pipelines.
 
 ## Project Layout
 
