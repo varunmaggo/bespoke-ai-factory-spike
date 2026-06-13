@@ -53,7 +53,7 @@ Services will be available at:
 | RAG Service | http://localhost:8001 |
 | Eval Service | http://localhost:8002 |
 | Transform Service | http://localhost:8003 |
-| Grafana | http://localhost:3000 |
+| Grafana | http://localhost:3000 (admin/admin) — open **AI Factory → Single Pane of Glass**) |
 | Jaeger | http://localhost:16686 |
 | Prometheus | http://localhost:9090 |
 | OpenSearch | http://localhost:9200 |
@@ -117,6 +117,27 @@ curl -X POST http://localhost:8080/api/v1/query \
 ```bash
 pytest evals/ -v -m deepeval
 ```
+
+### 8. Observability — single pane of glass
+
+Every service emits OpenTelemetry. Spring exports actuator metrics directly;
+the Python services (RAG / Eval / Transform) export **traces**, which the OTel
+Collector's `spanmetrics` connector turns into RED metrics
+(`ai_factory_calls_total`, `ai_factory_duration_milliseconds_*`) so they appear
+in Prometheus alongside Spring.
+
+Open Grafana at http://localhost:3000 (`admin`/`admin`) →
+**AI Factory → Single Pane of Glass** for one unified view:
+
+- **Health at a glance** — services up, targets down, pipeline throughput,
+  error rate, Spring p95
+- **Agent pipeline RED** — throughput, p95 duration and error rate per stage
+  (retrieve → enrich → transform → generate → validate) and a target-health table
+- **Edge (Spring API)** — request rate, p95 latency and 5xx by route
+- **Runtime & infra** — JVM heap and CPU
+
+The header links out to **Jaeger** (http://localhost:16686) for end-to-end
+traces. A more detailed `AI Factory — Overview` dashboard is also provisioned.
 
 ## AWS Transform Definitions
 
