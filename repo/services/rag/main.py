@@ -14,7 +14,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
@@ -22,6 +22,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from pydantic import BaseModel
 
+from .connectors import available_sources, chunk_document, get_connector
 from .graph_store import EnterpriseKnowledgeGraph
 from .orchestrator import AgentRAGOrchestrator
 from .vector_store import EnterpriseVectorStore
@@ -67,6 +68,10 @@ class QueryRequest(BaseModel):
     query: str
     filters: Optional[dict] = None
 
+class IngestRequest(BaseModel):
+    source: str
+    options: Optional[dict] = None
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -106,6 +111,42 @@ def query(req: QueryRequest):
 def index_document(req: IndexRequest):
     vector_store.index_document(req.doc_id, req.content, req.metadata)
     return {"indexed": req.doc_id}
+
+
+@app.get("/sources")
+def list_sources():
+    """List source systems that can be connected for ingestion."""
+    return {"sources": available_sources()}
+
+
+@app.post("/ingest")
+def ingest(req: IngestRequest):
+    """Connect an internal system (e.g. Confluence, SharePoint) and index it.
+
+    Fetches documents via the named connector, chunks them and bulk-indexes
+    into the hybrid vector store. Connectors fall back to bundled sample data
+    when no credentials are configured, so this works offline for the demo.
+    """
+    tracer = trace.get_tracer("rag-service")
+    with tracer.start_as_current_span("rag.ingest") as span:
+        span.set_attribute("ingest.source", req.source)
+        try:
+            connector = get_connector(req.source, **(req.options or {}))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+        docs = connector.fetch()
+        chunks = [chunk for doc in docs for chunk in chunk_document(doc)]
+        if chunks:
+            vector_store.bulk_index(chunks)
+        span.set_attribute("ingest.live", connector.is_live())
+        span.set_attribute("ingest.documents", len(docs))
+        span.set_attribute("ingest.chunks", len(chunks))
+        return {
+            "source":    req.source,
+            "live":      connector.is_live(),
+            "documents": len(docs),
+            "chunks":    len(chunks),
+        }
 
 
 # ── OTel setup ────────────────────────────────────────────────────────────────

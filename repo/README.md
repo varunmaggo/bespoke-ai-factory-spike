@@ -66,6 +66,37 @@ pip install -r requirements.txt
 python scripts/seed_data.py --source ./data/sample-docs/
 ```
 
+### 3b. Connect internal systems (Confluence / SharePoint)
+
+Pull documents straight from internal knowledge systems into the agentic RAG
+index via pluggable **connectors**. Each connector fetches documents, converts
+them to plain text, chunks them and bulk-indexes them into the hybrid vector
+store. Connectors **fall back to bundled sample content when no credentials are
+configured**, so this works offline for the demo.
+
+```bash
+# List the source systems you can connect
+python scripts/ingest_sources.py --list          # → confluence, sharepoint
+
+# Ingest from Confluence (uses sample pages until CONFLUENCE_* env vars are set)
+python scripts/ingest_sources.py --source confluence
+
+# Ingest from SharePoint, overriding a connector option inline
+python scripts/ingest_sources.py --source sharepoint --option site_id=contoso.sharepoint.com,abc123
+
+# …or call the RAG service directly
+curl -X POST http://localhost:8001/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"source": "confluence", "options": {"space": "ENG"}}'
+```
+
+To connect a **live** instance, set the credentials in `.env`:
+`CONFLUENCE_BASE_URL` / `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN` (Atlassian
+REST API) and `SHAREPOINT_TENANT_ID` / `SHAREPOINT_CLIENT_ID` /
+`SHAREPOINT_CLIENT_SECRET` / `SHAREPOINT_SITE_ID` (Microsoft Graph). Add new
+sources by implementing `services/rag/connectors/base.py:Connector` and
+registering it in `connectors/registry.py`.
+
 ### 4. Pilot your AWS Transform definition
 
 ```bash
@@ -198,6 +229,7 @@ mvn -f fintech/pom.xml clean test   # builds all 7 modules, no AWS access needed
 │   └── fx-settlement/
 ├── services/
 │   ├── rag/                        # Python RAG microservice (FastAPI :8001)
+│   │   └── connectors/            #   Confluence / SharePoint source connectors
 │   ├── eval/                       # Python eval microservice (FastAPI :8002)
 │   └── transform/                  # AWS Transform CLI wrapper service
 ├── spring/                         # Java Spring microservice (:8080)
