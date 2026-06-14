@@ -1,7 +1,7 @@
 # Demo slide pack
 
-A 20-slide demo deck for the Bespoke Agentic AI Factory — designs, architecture,
-flows and UI mockups.
+A 35-slide demo deck for the Bespoke Agentic AI Factory — designs, architecture,
+flows, UI mockups and the wider Cognitive Enterprise Platform vision.
 
 ## Files
 
@@ -40,7 +40,25 @@ python docs/slides/build_deck.py
 17. Demo walkthrough — bring it up & ingest *(mockup)*
 18. Query → grounded, gated answer *(mockup)*
 19. Quality, testing & security
-20. Roadmap & next steps
+20. Roadmap & next steps (the spike) → transition to the platform vision
+
+### Part 2 — the Cognitive Enterprise Platform
+
+21. The Cognitive Enterprise Platform — layered blueprint
+22. Business surface — value streams across every function
+23. Orchestration layer — the AI Centre of Excellence
+24. Operating model — centrally vs decentrally built agents
+25. Agent-to-Agent (A2A) collaboration — protocol flow
+26. Memory architecture — long-term vs short-term
+27. Data foundation & LLMOps — bottom-up pipeline
+28. How this spike maps to the platform
+29. Security, guardrails & Responsible AI
+30. FinOps — cost & performance engine
+31. Personas & journeys
+32. Maturity model — crawl / walk / run / fly
+33. Implementation roadmap — Now / Next / Later
+34. Business value & ROI
+35. Closing — vision & call to action
 
 > The slides marked *(mockup)* are high-fidelity representations of the UI /
 > terminal output. Capturing them live requires `docker compose up` (Docker was

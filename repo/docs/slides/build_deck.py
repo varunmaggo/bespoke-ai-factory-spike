@@ -2,7 +2,7 @@
 """
 docs/slides/build_deck.py — Generate the Bespoke Agentic AI Factory demo deck.
 
-Renders 20 slides (title, architecture, flows, UI mockups) as high-resolution
+Renders 35 slides (title, architecture, flows, UI mockups) as high-resolution
 PNGs with matplotlib, then assembles them into:
   - docs/slides/ai-factory-demo.pdf
   - docs/slides/ai-factory-demo.pptx   (one full-bleed image per slide)
@@ -73,7 +73,7 @@ def grad_band(ax, y=0, h=8, c=CYAN):
     ax.add_patch(Rectangle((0, y), W, h, color=c, zorder=5))
 
 
-def footer(ax, n, total=20):
+def footer(ax, n, total=35):
     ax.plot([56, W - 56], [H - 46, H - 46], color=LINE, lw=1, zorder=2)
     ax.text(56, H - 28, "Bespoke Agentic AI Factory  ·  Demo Pack",
             color=MUT, fontsize=9, va="center")
@@ -222,7 +222,7 @@ def s01():
         cx += chip(ax, cx, 430, t, fc="#152038", tc=c, fs=12) + 12
     ax.text(64, 540, "Solution Architecture · Pipeline Flows · Live Demo",
             color=INK, fontsize=15, va="center")
-    ax.text(64, 568, "20-slide demo pack", color=MUT, fontsize=12, va="center")
+    ax.text(64, 568, "35-slide demo pack", color=MUT, fontsize=12, va="center")
     footer(ax, 1)
     save(fig, 1)
 
@@ -841,16 +841,560 @@ def s20():
         "/ingest API + CLI, 24 new tests",
         "Test-collection fix (99 green)",
     ], dy=46, fs=13.5, marker=GRN)
-    ax.text(64, 600, "Thank you", color=INK, fontsize=30, fontweight="bold", va="center")
-    ax.text(66, 642, "Questions & live demo  ·  docs/slides/ai-factory-demo.pdf",
-            color=MUT, fontsize=14, va="center")
+    ax.text(64, 600, "Next: scaling into a Cognitive Enterprise Platform  →",
+            color=CYAN, fontsize=20, fontweight="bold", va="center")
+    ax.text(66, 638, "Federated agents · shared memory · A2A orchestration",
+            color=MUT, fontsize=13, va="center")
     footer(ax, 20)
     save(fig, 20)
 
 
+def card_row(ax, x0, x1, y, h, items, color, fs=10, fc="#101A30", lw=1.3, r=8):
+    """Evenly spaced mini-cards across [x0, x1]."""
+    n = len(items)
+    gap = 12
+    cw = (x1 - x0 - gap * (n - 1)) / n
+    for i, it in enumerate(items):
+        cx = x0 + i * (cw + gap)
+        rbox(ax, cx, y, cw, h, fc=fc, ec=color, lw=lw, r=r, z=5)
+        ax.text(cx + cw / 2, y + h / 2, it, color=INK, fontsize=fs,
+                ha="center", va="center", zorder=6)
+    return cw
+
+
+def s21():
+    fig, ax = new_slide()
+    title_bar(ax, "Target architecture", "The Cognitive Enterprise Platform",
+              "Centralised + decentralised agents · long/short-term memory · "
+              "A2A orchestration · built bottom-up")
+
+    def lane(y, h, label, color):
+        panel(ax, 56, y, 1168, h, fc=BG2, ec=LINE, r=10)
+        ax.add_patch(Rectangle((56, y), 6, h, color=color, zorder=4))
+        ax.text(74, y + h / 2, label, color=color, fontsize=9.5,
+                fontweight="bold", va="center")
+
+    # L1 — business surface
+    lane(150, 56, "BUSINESS\nSURFACE", BLUE)
+    card_row(ax, 195, 1212, 163, 30,
+             ["Finance &\nProcurement", "Operations &\nQuality", "HR & People",
+              "Product\nDevelopment", "Supply Chain", "Customer & Sales"],
+             BLUE, fs=9)
+    # L2 — orchestration
+    lane(214, 66, "ORCHESTRA-\nTION", PUR)
+    card_row(ax, 195, 1212, 230, 34,
+             ["Workflow\nOrchestrator", "Cross-Domain\nCoordinator",
+              "Responsible AI\n(RAI)", "Governance\n& Policy",
+              "Value & ROI\nMonitor", "Cost & Perf\nEngine"],
+             PUR, fs=8.5)
+    # L3 — agent ecosystem (two sub-rows)
+    lane(288, 160, "AGENT\nECOSYSTEM", CYAN)
+    chip(ax, 1054, 296, "A2A protocol", fc="#152038", tc=PINK, fs=9, h=22)
+    ax.text(174, 344, "Centrally\nbuilt", color=CYAN, fontsize=9,
+            fontweight="bold", va="center")
+    card_row(ax, 300, 1212, 322, 44,
+             ["RAG &\nKnowledge", "Analytics\nEngine", "Action &\nWorkflow",
+              "Visual & Data\nInspector"], CYAN, fs=9, fc="#0E1A30")
+    ax.text(174, 406, "Decentrally\nbuilt", color=ORG, fontsize=9,
+            fontweight="bold", va="center")
+    card_row(ax, 300, 1212, 384, 44,
+             ["Invoice &\nAP", "Spend\nAnalyst", "Quality\nControl",
+              "Logistics\nCoord.", "Charge\nAssistant", "R&D\nKnowledge"],
+             ORG, fs=9, fc="#1F1605")
+    # L4 — memory
+    lane(456, 82, "MEMORY\nARCH.", GRN)
+    ax.text(200, 470, "Long-term", color=GRN, fontsize=9, fontweight="bold",
+            va="center")
+    card_row(ax, 200, 858, 482, 40,
+             ["Org Knowledge\nBase", "Model\nRegistry", "Vector\nDatabase",
+              "Institutional\nMemory", "Compliance\nStore"], GRN, fs=8.5)
+    ax.text(880, 470, "Short-term", color=AMB, fontsize=9, fontweight="bold",
+            va="center")
+    card_row(ax, 880, 1212, 482, 40,
+             ["Session\nContext", "Scratchpad"], AMB, fs=9)
+    # L5 — data foundation & LLMOps
+    lane(546, 84, "DATA &\nLLMOPS", ORG)
+    card_row(ax, 200, 1212, 568, 40,
+             ["Structured\nData", "Unstructured\nData", "Real-time\nStreams",
+              "External\nKnowledge", "Embedding\n& Index", "LLMOps\nPipeline"],
+             ORG, fs=9)
+    ax.text(64, 652, "Build sequence (bottom-up):  data foundation → memory → "
+            "agents → orchestration → business value",
+            color=CYAN, fontsize=11, fontweight="bold", va="center")
+    footer(ax, 21)
+    save(fig, 21)
+
+
+def s22():
+    fig, ax = new_slide()
+    title_bar(ax, "Business surface", "Value streams across every function",
+              "Agents meet people where the work happens — one platform, many domains")
+    funcs = [
+        ("Finance & Procurement", CYAN,
+         ["Invoice & AP automation", "Spend & savings analyst", "Contract Q&A"]),
+        ("Operations & Quality", GRN,
+         ["Quality control agent", "SOP / runbook copilot", "Incident triage"]),
+        ("HR & People", PUR,
+         ["Onboarding assistant", "Policy & benefits Q&A", "Talent matching"]),
+        ("Product Development", BLUE,
+         ["R&D knowledge agent", "Design / code copilot", "Spec drafting"]),
+        ("Supply Chain", ORG,
+         ["Demand forecasting", "Supplier risk watch", "Logistics coordinator"]),
+        ("Customer & Sales", PINK,
+         ["Charge / billing assistant", "Proposal generator", "Next-best-action"]),
+    ]
+    for i, (t, c, items) in enumerate(funcs):
+        r, col = divmod(i, 3)
+        x = 64 + col * 388
+        y = 200 + r * 210
+        panel(ax, x, y, 360, 186, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((x, y), 360, 8, color=c, zorder=4))
+        ax.text(x + 22, y + 44, t, color=INK, fontsize=15.5,
+                fontweight="bold", va="center")
+        for j, it in enumerate(items):
+            ax.add_patch(Circle((x + 30, y + 92 + j * 34), 4, color=c, zorder=5))
+            ax.text(x + 48, y + 92 + j * 34, it, color=MUT, fontsize=12.5, va="center")
+    footer(ax, 22)
+    save(fig, 22)
+
+
+def s23():
+    fig, ax = new_slide()
+    title_bar(ax, "Orchestration layer", "The AI Centre of Excellence",
+              "Central control plane that coordinates, governs and optimises every agent")
+    caps = [
+        ("Workflow orchestration", CYAN,
+         "Plan, route and supervise multi-step,\nmulti-agent work end to end"),
+        ("Cross-domain coordination", BLUE,
+         "Hand off context safely between\nfunction-specific agents"),
+        ("Responsible AI (RAI)", PUR,
+         "Guardrails, bias & safety checks,\nhuman-in-the-loop policies"),
+        ("Governance & policy", GRN,
+         "Access control, audit trails,\nmodel & data approvals"),
+        ("Value & ROI monitoring", AMB,
+         "Track outcomes, adoption and\nbusiness value per agent"),
+        ("Cost & performance engine", ORG,
+         "Model routing, caching and\ntoken budget guardrails"),
+    ]
+    for i, (t, c, d) in enumerate(caps):
+        r, col = divmod(i, 3)
+        x = 64 + col * 388
+        y = 210 + r * 200
+        panel(ax, x, y, 360, 176, fc=BG2, ec=LINE)
+        ax.add_patch(FancyBboxPatch((x + 22, y + 22), 40, 40,
+                     boxstyle="round,pad=0,rounding_size=10",
+                     fc="#152038", ec=c, lw=2, zorder=4))
+        ax.add_patch(Circle((x + 42, y + 42), 8, color=c, zorder=5))
+        ax.text(x + 22, y + 92, t, color=INK, fontsize=14.5,
+                fontweight="bold", va="center")
+        ax.text(x + 22, y + 120, d, color=MUT, fontsize=11.5, va="top")
+    footer(ax, 23)
+    save(fig, 23)
+
+
+def s24():
+    fig, ax = new_slide()
+    title_bar(ax, "Operating model", "Centrally built · decentrally built",
+              "A federated model: a paved-road platform that domain teams build on")
+    panel(ax, 64, 200, 520, 300, fc="#0E1A30", ec=CYAN)
+    ax.add_patch(Rectangle((64, 200), 520, 8, color=CYAN, zorder=4))
+    ax.text(88, 242, "Centrally built", color=CYAN, fontsize=18,
+            fontweight="bold", va="center")
+    ax.text(88, 270, "Platform / CoE team", color=MUT, fontsize=12, va="center")
+    bullets(ax, 88, 312, [
+        "Shared agents: RAG, analytics, action, inspector",
+        "Reusable tools, memory & guardrails",
+        "Golden datasets and eval harness",
+        "Security, observability, FinOps baked in",
+    ], dy=42, fs=13, marker=CYAN)
+    panel(ax, 616, 200, 504, 300, fc="#1F1605", ec=ORG)
+    ax.add_patch(Rectangle((616, 200), 504, 8, color=ORG, zorder=4))
+    ax.text(640, 242, "Decentrally built", color=ORG, fontsize=18,
+            fontweight="bold", va="center")
+    ax.text(640, 270, "Business / domain teams", color=MUT, fontsize=12, va="center")
+    bullets(ax, 640, 312, [
+        "Domain agents: invoice, quality, logistics…",
+        "Own their prompts, data and use cases",
+        "Move fast on the paved road",
+        "Compose central agents via A2A",
+    ], dy=42, fs=13, marker=ORG)
+    panel(ax, 64, 530, 1056, 96, fc=BG2, ec=LINE)
+    ax.text(86, 560, "The paved road", color=INK, fontsize=15,
+            fontweight="bold", va="center")
+    px = 86
+    for t, c in [("A2A protocol", PUR), ("Shared memory", GRN),
+                 ("Guardrails", RED), ("Eval gates", AMB),
+                 ("Observability", CYAN), ("Cost controls", ORG)]:
+        px += chip(ax, px, 592, t, fc="#152038", tc=c, fs=12) + 14
+    footer(ax, 24)
+    save(fig, 24)
+
+
+def s25():
+    fig, ax = new_slide()
+    title_bar(ax, "Protocol", "Agent-to-Agent (A2A) collaboration")
+    actors = [("Orchestrator", PUR), ("Finance Agent", CYAN), ("RAG Agent", GRN),
+              ("Analytics Agent", BLUE), ("Tools / MCP", ORG)]
+    xs = [150, 400, 650, 900, 1140]
+    for (name, c), x in zip(actors, xs):
+        boxed_label(ax, x - 95, 180, 190, 50, name, BG2, c, tc=c, title_fs=13)
+        ax.plot([x, x], [230, 590], color=LINE, lw=1.4, ls=(0, (4, 4)), zorder=1)
+    steps = [
+        (0, 1, "task: 'explain Q2 AP spend spike'", PUR, 272),
+        (1, 2, "retrieve(context)", CYAN, 318),
+        (2, 4, "hybrid search · graph", GRN, 364),
+        (4, 2, "documents + entities", MUT, 410),
+        (1, 3, "analyse(trend, anomalies)", CYAN, 456),
+        (3, 3, "compute deltas · attribute", BLUE, 502),
+        (1, 0, "grounded, attributed answer", GRN, 548),
+    ]
+    for a, b, label, c, y in steps:
+        if a == b:
+            ax.add_patch(FancyBboxPatch((xs[a] + 10, y - 14), 240, 26,
+                         boxstyle="round,pad=0,rounding_size=6",
+                         fc="#152038", ec=c, lw=1.4, zorder=3))
+            ax.text(xs[a] + 20, y, label, color=c, fontsize=11.5, va="center",
+                    zorder=4, fontproperties=MONO)
+        else:
+            arrow(ax, xs[a], y, xs[b], y, color=c, lw=2)
+            mx = (xs[a] + xs[b]) / 2
+            ax.text(mx, y - 12, label, color=INK, fontsize=11, ha="center",
+                    va="center", zorder=4)
+    ax.text(64, 624, "A2A lets specialised agents delegate sub-tasks with shared "
+            "context — orchestrated, observable and policy-checked.",
+            color=MUT, fontsize=12.5, va="center")
+    footer(ax, 25)
+    save(fig, 25)
+
+
+def s26():
+    fig, ax = new_slide()
+    title_bar(ax, "Memory", "Memory architecture — what the platform remembers")
+    panel(ax, 64, 200, 520, 360, fc=BG2, ec=GRN)
+    ax.add_patch(Rectangle((64, 200), 520, 8, color=GRN, zorder=4))
+    ax.text(88, 242, "Long-term memory", color=GRN, fontsize=17,
+            fontweight="bold", va="center")
+    rows = [
+        ("Org knowledge base", "docs, wikis, policies → RAG index"),
+        ("Vector database", "embeddings for semantic recall"),
+        ("Knowledge graph", "entities & relationships (Neo4j)"),
+        ("Model & prompt registry", "versioned, governed assets"),
+        ("Institutional memory", "past decisions, outcomes, feedback"),
+        ("Compliance store", "audit logs, lineage, approvals"),
+    ]
+    for j, (t, d) in enumerate(rows):
+        y = 292 + j * 44
+        ax.add_patch(Circle((92, y), 4, color=GRN, zorder=5))
+        ax.text(108, y, t, color=INK, fontsize=13, fontweight="bold", va="center")
+        ax.text(308, y, d, color=MUT, fontsize=11, va="center")
+    panel(ax, 616, 200, 504, 360, fc=BG2, ec=AMB)
+    ax.add_patch(Rectangle((616, 200), 504, 8, color=AMB, zorder=4))
+    ax.text(640, 242, "Short-term memory", color=AMB, fontsize=17,
+            fontweight="bold", va="center")
+    rows2 = [
+        ("Session context", "current conversation & goals"),
+        ("Scratchpad", "intermediate reasoning & plans"),
+        ("Tool results cache", "reuse within a single task"),
+        ("Working set", "retrieved chunks in play"),
+    ]
+    for j, (t, d) in enumerate(rows2):
+        y = 300 + j * 54
+        ax.add_patch(Circle((644, y), 4, color=AMB, zorder=5))
+        ax.text(660, y, t, color=INK, fontsize=13.5, fontweight="bold", va="center")
+        ax.text(660, y + 22, d, color=MUT, fontsize=11.5, va="center")
+    ax.text(64, 600, "Short-term memory is cleared / summarised at task end — and "
+            "promoted to long-term when it proves valuable.",
+            color=CYAN, fontsize=12.5, va="center")
+    footer(ax, 26)
+    save(fig, 26)
+
+
+def s27():
+    fig, ax = new_slide()
+    title_bar(ax, "Foundation", "Data foundation & LLMOps",
+              "From raw enterprise data to a production, observed pipeline")
+    srcs = [("Structured data", CYAN, "DBs, ERP, CRM"),
+            ("Unstructured data", PUR, "docs, email, wikis"),
+            ("Real-time streams", GRN, "events, logs, IoT"),
+            ("External knowledge", ORG, "web, market, partners")]
+    for i, (t, c, d) in enumerate(srcs):
+        boxed_label(ax, 64, 200 + i * 92, 210, 72, t, BG2, c, tc=c, sub=d,
+                    title_fs=13)
+    stages = [("Ingest &\nclean", AMB), ("Chunk &\nenrich", PUR),
+              ("Embed", CYAN), ("Index", GRN), ("Serve", BLUE)]
+    x = 340
+    for i, (t, c) in enumerate(stages):
+        boxed_label(ax, x, 310, 150, 70, t, "#0E1A30", c, tc=c, title_fs=13)
+        if i:
+            arrow(ax, x - 20, 345, x, 345, color=MUT)
+        x += 170
+    for i in range(4):
+        arrow(ax, 274, 236 + i * 92, 340, 345, color=LINE, lw=1.4)
+    panel(ax, 340, 430, 800, 90, fc=BG2, ec=LINE)
+    ax.text(362, 460, "LLMOps loop", color=INK, fontsize=14,
+            fontweight="bold", va="center")
+    px = 362
+    for t, c in [("eval gates", GRN), ("drift detection", AMB),
+                 ("retraining", PUR), ("versioning", CYAN),
+                 ("observability", ORG)]:
+        px += chip(ax, px, 490, t, fc="#152038", tc=c, fs=12) + 14
+    ax.text(64, 600, "Bottom-up: a solid data + LLMOps base is what makes agents "
+            "reliable, current and safe in production.",
+            color=CYAN, fontsize=13, va="center")
+    footer(ax, 27)
+    save(fig, 27)
+
+
+def s28():
+    fig, ax = new_slide()
+    title_bar(ax, "Alignment", "How this spike maps to the platform")
+    panel(ax, 56, 178, 1168, 56, fc=BG3, ec=LINE)
+    ax.text(80, 206, "Platform layer", color=CYAN, fontsize=13,
+            fontweight="bold", va="center")
+    ax.text(470, 206, "Delivered in this spike", color=GRN, fontsize=13,
+            fontweight="bold", va="center")
+    ax.text(880, 206, "Next step", color=AMB, fontsize=13,
+            fontweight="bold", va="center")
+    rows = [
+        ("Business surface", "Spring API + query endpoint",
+         "Per-function agent UIs", BLUE),
+        ("Orchestration", "Kiro 5-stage agent spec",
+         "Multi-agent A2A orchestrator", PUR),
+        ("Agent ecosystem", "RAG / eval / transform agents",
+         "Decentralised domain agents", CYAN),
+        ("Memory", "OpenSearch vectors + Neo4j graph",
+         "Institutional & session memory", GRN),
+        ("Data & LLMOps", "Connectors, seed, eval gates",
+         "Streaming + drift + retrain", ORG),
+        ("Governance", "Eval gates, PII redaction, SAST/DAST",
+         "RAI policies, value/ROI monitor", RED),
+    ]
+    for i, (l, now, nxt, c) in enumerate(rows):
+        y = 246 + i * 62
+        panel(ax, 56, y, 1168, 52, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((56, y), 6, 52, color=c, zorder=4))
+        ax.text(80, y + 26, l, color=INK, fontsize=13, fontweight="bold",
+                va="center")
+        ax.text(470, y + 26, now, color=MUT, fontsize=12, va="center")
+        ax.text(880, y + 26, nxt, color=MUT, fontsize=12, va="center")
+    footer(ax, 28)
+    save(fig, 28)
+
+
+def s29():
+    fig, ax = new_slide()
+    title_bar(ax, "Trust", "Security, guardrails & Responsible AI")
+    cols = [
+        ("Input guardrails", CYAN,
+         ["Prompt-injection detection", "PII / secret screening",
+          "Access & entitlement checks"]),
+        ("Output guardrails", GRN,
+         ["Groundedness / citation check", "Toxicity, bias, safety filters",
+          "Eval gate before release"]),
+        ("Platform controls", PUR,
+         ["RBAC + audit trails", "Data lineage & approvals",
+          "Human-in-the-loop for high risk"]),
+    ]
+    for i, (t, c, items) in enumerate(cols):
+        x = 64 + i * 388
+        panel(ax, x, 200, 360, 300, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((x, 200), 360, 8, color=c, zorder=4))
+        ax.text(x + 24, 244, t, color=INK, fontsize=16,
+                fontweight="bold", va="center")
+        for j, it in enumerate(items):
+            ax.add_patch(Circle((x + 32, 300 + j * 52), 4, color=c, zorder=5))
+            ax.text(x + 50, 300 + j * 52, it, color=MUT, fontsize=12.5, va="center")
+    panel(ax, 64, 530, 1056, 96, fc=BG2, ec=LINE)
+    ax.text(86, 560, "Defence in depth", color=INK, fontsize=15,
+            fontweight="bold", va="center")
+    ax.text(86, 592, "Every request passes input → policy → retrieval → "
+            "generation → output gates, with full telemetry and audit at each hop.",
+            color=MUT, fontsize=12.5, va="center")
+    footer(ax, 29)
+    save(fig, 29)
+
+
+def s30():
+    fig, ax = new_slide()
+    title_bar(ax, "FinOps", "Cost & performance engine",
+              "Make agents fast and affordable at scale")
+    tiles = [("-62%", "cost per query", "via caching + routing", GRN),
+             ("38%", "cache hit rate", "semantic + exact", CYAN),
+             ("3", "model tiers", "route by difficulty", PUR),
+             ("100%", "budget-guarded", "hard token caps", AMB)]
+    for i, (v, t, d, c) in enumerate(tiles):
+        x = 64 + i * 270
+        panel(ax, x, 200, 246, 150, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((x, 200), 246, 8, color=c, zorder=4))
+        ax.text(x + 22, 256, v, color=c, fontsize=32, fontweight="bold", va="center")
+        ax.text(x + 22, 300, t, color=INK, fontsize=14, fontweight="bold", va="center")
+        ax.text(x + 22, 326, d, color=MUT, fontsize=11, va="center")
+    panel(ax, 64, 390, 520, 240, fc=BG2, ec=LINE)
+    ax.text(86, 422, "Levers", color=INK, fontsize=15, fontweight="bold", va="center")
+    bullets(ax, 86, 466, [
+        "Route easy calls to small models",
+        "Cache embeddings & frequent answers",
+        "Batch + stream to cut latency",
+        "Trim context with normalisation",
+    ], dy=40, fs=13, marker=CYAN)
+    panel(ax, 604, 390, 516, 240, fc=BG2, ec=LINE)
+    ax.text(626, 422, "Governance", color=INK, fontsize=15,
+            fontweight="bold", va="center")
+    bullets(ax, 626, 466, [
+        "Per-team token budgets & alerts",
+        "Cost attributed by agent & domain",
+        "ROI tracked against business value",
+        "Anomaly detection on spend",
+    ], dy=40, fs=13, marker=AMB)
+    footer(ax, 30)
+    save(fig, 30)
+
+
+def s31():
+    fig, ax = new_slide()
+    title_bar(ax, "Adoption", "Personas & journeys")
+    ps = [
+        ("Knowledge worker", CYAN, "Asks a question",
+         "Gets a grounded, cited answer in seconds"),
+        ("Domain builder", ORG, "Builds an agent",
+         "Composes platform agents on the paved road"),
+        ("Platform engineer", PUR, "Operates the platform",
+         "Ships shared agents, memory & guardrails"),
+        ("Risk & compliance", GRN, "Governs usage",
+         "Audits, approves and monitors every agent"),
+    ]
+    for i, (t, c, a, b) in enumerate(ps):
+        r, col = divmod(i, 2)
+        x = 64 + col * 548
+        y = 210 + r * 210
+        panel(ax, x, y, 520, 186, fc=BG2, ec=LINE)
+        ax.add_patch(FancyBboxPatch((x + 24, y + 24), 48, 48,
+                     boxstyle="round,pad=0,rounding_size=12",
+                     fc="#152038", ec=c, lw=2, zorder=4))
+        ax.add_patch(Circle((x + 48, y + 48), 10, color=c, zorder=5))
+        ax.text(x + 92, y + 40, t, color=INK, fontsize=17,
+                fontweight="bold", va="center")
+        ax.text(x + 92, y + 72, a, color=c, fontsize=12.5, va="center")
+        ax.text(x + 24, y + 124, b, color=MUT, fontsize=12.5, va="center")
+    footer(ax, 31)
+    save(fig, 31)
+
+
+def s32():
+    fig, ax = new_slide()
+    title_bar(ax, "Maturity", "From pilot to platform")
+    stages = [
+        ("Crawl", CYAN, "Single agent, single domain", "RAG + eval on one use case"),
+        ("Walk", BLUE, "Several agents, shared memory", "Connectors, observ., gates"),
+        ("Run", PUR, "Federated agent ecosystem", "A2A across functions"),
+        ("Fly", GRN, "Self-optimising platform", "Auto-eval, auto-route, auto-scale"),
+    ]
+    for i, (t, c, a, b) in enumerate(stages):
+        x = 64 + i * 290
+        y = 470 - i * 84
+        panel(ax, x, y, 260, 150, fc=BG2, ec=c)
+        ax.add_patch(Rectangle((x, y), 260, 8, color=c, zorder=4))
+        ax.text(x + 22, y + 44, t, color=c, fontsize=20, fontweight="bold", va="center")
+        ax.text(x + 22, y + 84, a, color=INK, fontsize=12, fontweight="bold", va="center")
+        ax.text(x + 22, y + 112, b, color=MUT, fontsize=11, va="top")
+        if i:
+            arrow(ax, x - 26, y + 150, x + 8, y + 78, color=MUT, lw=2)
+    ax.text(64, 650, "We are here:  Walk — connectors, single pane of glass and "
+            "eval gates are live.", color=AMB, fontsize=13,
+            fontweight="bold", va="center")
+    footer(ax, 32)
+    save(fig, 32)
+
+
+def s33():
+    fig, ax = new_slide()
+    title_bar(ax, "Plan", "Implementation roadmap")
+    cols = [
+        ("Now · 0-3 mo", GRN,
+         ["Harden RAG + connectors", "Single pane of glass SLOs",
+          "2-3 lighthouse use cases", "Eval gates in CI/CD"]),
+        ("Next · 3-9 mo", AMB,
+         ["A2A multi-agent orchestrator", "Institutional + session memory",
+          "Domain agent toolkit", "FinOps cost engine"]),
+        ("Later · 9-18 mo", PUR,
+         ["Federated agent marketplace", "Streaming + drift + retrain",
+          "Self-optimising routing", "Org-wide rollout"]),
+    ]
+    for i, (t, c, items) in enumerate(cols):
+        x = 64 + i * 388
+        panel(ax, x, 200, 360, 420, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((x, 200), 360, 8, color=c, zorder=4))
+        ax.text(x + 24, 246, t, color=c, fontsize=17, fontweight="bold", va="center")
+        bullets(ax, x + 24, 300, items, dy=54, fs=13.5, marker=c)
+    footer(ax, 33)
+    save(fig, 33)
+
+
+def s34():
+    fig, ax = new_slide()
+    title_bar(ax, "Value", "Business value & ROI")
+    tiles = [("3-5x", CYAN, "faster knowledge retrieval"),
+             ("40-60%", GRN, "less manual rework"),
+             ("weeks→days", PUR, "legacy modernisation"),
+             ("24/7", ORG, "consistent, audited answers")]
+    for i, (v, c, d) in enumerate(tiles):
+        x = 64 + i * 270
+        panel(ax, x, 200, 246, 140, fc=BG2, ec=LINE)
+        ax.add_patch(Rectangle((x, 200), 246, 8, color=c, zorder=4))
+        ax.text(x + 22, 256, v, color=c, fontsize=25, fontweight="bold", va="center")
+        ax.text(x + 22, 300, d, color=MUT, fontsize=12, va="top")
+    panel(ax, 64, 380, 1056, 240, fc=BG2, ec=LINE)
+    ax.text(86, 414, "Value levers", color=INK, fontsize=16,
+            fontweight="bold", va="center")
+    levers = [("Productivity", CYAN, "agents handle the busywork"),
+              ("Quality", GRN, "grounded, gated, consistent"),
+              ("Speed", PUR, "modernise & ship faster"),
+              ("Risk", RED, "governed, auditable, safe"),
+              ("Cost", ORG, "routing + caching + budgets"),
+              ("Scale", BLUE, "one platform, many domains")]
+    for i, (t, c, d) in enumerate(levers):
+        r, col = divmod(i, 3)
+        x = 86 + col * 350
+        y = 462 + r * 74
+        ax.add_patch(Circle((x + 8, y), 6, color=c, zorder=5))
+        ax.text(x + 28, y, t, color=INK, fontsize=14, fontweight="bold", va="center")
+        ax.text(x + 28, y + 24, d, color=MUT, fontsize=11.5, va="center")
+    footer(ax, 34)
+    save(fig, 34)
+
+
+def s35():
+    fig, ax = new_slide()
+    for i, (_, c) in enumerate(STAGE):
+        ax.add_patch(Rectangle((0, 150 + i * 90), W, 90, color=c, alpha=0.05, zorder=-5))
+    grad_band(ax, 0, 8, CYAN)
+    ax.text(64, 250, "From spike to", color=INK, fontsize=46,
+            fontweight="bold", va="center")
+    ax.text(64, 316, "Cognitive Enterprise Platform", color=CYAN, fontsize=46,
+            fontweight="bold", va="center")
+    ax.text(66, 372, "Grounded · governed · observable · cost-aware AI — "
+            "built bottom-up, scaled org-wide.", color=MUT, fontsize=16, va="center")
+    px = 66
+    for t, c in [("Agentic RAG", CYAN), ("A2A orchestration", PUR),
+                 ("Shared memory", GRN), ("Eval gates", AMB), ("FinOps", ORG)]:
+        px += chip(ax, px, 420, t, fc="#152038", tc=c, fs=12) + 12
+    panel(ax, 64, 470, 1056, 110, fc=BG2, ec=LINE)
+    ax.text(86, 502, "Call to action", color=INK, fontsize=15,
+            fontweight="bold", va="center")
+    ax.text(86, 536, "Pick 2-3 lighthouse use cases · stand up the paved road · "
+            "prove ROI · then federate across the business.",
+            color=MUT, fontsize=13, va="center")
+    ax.text(64, 624, "Thank you  ·  Questions & live demo", color=INK,
+            fontsize=22, fontweight="bold", va="center")
+    footer(ax, 35)
+    save(fig, 35)
+
+
 def main():
     for fn in [s01, s02, s03, s04, s05, s06, s07, s08, s09, s10,
-               s11, s12, s13, s14, s15, s16, s17, s18, s19, s20]:
+               s11, s12, s13, s14, s15, s16, s17, s18, s19, s20,
+               s21, s22, s23, s24, s25, s26, s27, s28, s29, s30,
+               s31, s32, s33, s34, s35]:
         fn()
     # Assemble PDF
     from PIL import Image
