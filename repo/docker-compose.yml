@@ -21,6 +21,15 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_SERVICE_NAME:    rag-service
+      # Internal source connectors (optional — sample data used when unset)
+      CONFLUENCE_BASE_URL:   ${CONFLUENCE_BASE_URL:-}
+      CONFLUENCE_EMAIL:      ${CONFLUENCE_EMAIL:-}
+      CONFLUENCE_API_TOKEN:  ${CONFLUENCE_API_TOKEN:-}
+      CONFLUENCE_SPACE:      ${CONFLUENCE_SPACE:-}
+      SHAREPOINT_TENANT_ID:     ${SHAREPOINT_TENANT_ID:-}
+      SHAREPOINT_CLIENT_ID:     ${SHAREPOINT_CLIENT_ID:-}
+      SHAREPOINT_CLIENT_SECRET: ${SHAREPOINT_CLIENT_SECRET:-}
+      SHAREPOINT_SITE_ID:       ${SHAREPOINT_SITE_ID:-}
     depends_on:
       opensearch:
         condition: service_healthy

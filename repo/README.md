@@ -53,7 +53,7 @@ Services will be available at:
 | RAG Service | http://localhost:8001 |
 | Eval Service | http://localhost:8002 |
 | Transform Service | http://localhost:8003 |
-| Grafana | http://localhost:3000 |
+| Grafana | http://localhost:3000 (admin/admin) — open **AI Factory → Single Pane of Glass**) |
 | Jaeger | http://localhost:16686 |
 | Prometheus | http://localhost:9090 |
 | OpenSearch | http://localhost:9200 |
@@ -65,6 +65,37 @@ Services will be available at:
 pip install -r requirements.txt
 python scripts/seed_data.py --source ./data/sample-docs/
 ```
+
+### 3b. Connect internal systems (Confluence / SharePoint)
+
+Pull documents straight from internal knowledge systems into the agentic RAG
+index via pluggable **connectors**. Each connector fetches documents, converts
+them to plain text, chunks them and bulk-indexes them into the hybrid vector
+store. Connectors **fall back to bundled sample content when no credentials are
+configured**, so this works offline for the demo.
+
+```bash
+# List the source systems you can connect
+python scripts/ingest_sources.py --list          # → confluence, sharepoint
+
+# Ingest from Confluence (uses sample pages until CONFLUENCE_* env vars are set)
+python scripts/ingest_sources.py --source confluence
+
+# Ingest from SharePoint, overriding a connector option inline
+python scripts/ingest_sources.py --source sharepoint --option site_id=contoso.sharepoint.com,abc123
+
+# …or call the RAG service directly
+curl -X POST http://localhost:8001/ingest \
+  -H "Content-Type: application/json" \
+  -d '{"source": "confluence", "options": {"space": "ENG"}}'
+```
+
+To connect a **live** instance, set the credentials in `.env`:
+`CONFLUENCE_BASE_URL` / `CONFLUENCE_EMAIL` / `CONFLUENCE_API_TOKEN` (Atlassian
+REST API) and `SHAREPOINT_TENANT_ID` / `SHAREPOINT_CLIENT_ID` /
+`SHAREPOINT_CLIENT_SECRET` / `SHAREPOINT_SITE_ID` (Microsoft Graph). Add new
+sources by implementing `services/rag/connectors/base.py:Connector` and
+registering it in `connectors/registry.py`.
 
 ### 4. Pilot your AWS Transform definition
 
@@ -117,6 +148,27 @@ curl -X POST http://localhost:8080/api/v1/query \
 ```bash
 pytest evals/ -v -m deepeval
 ```
+
+### 8. Observability — single pane of glass
+
+Every service emits OpenTelemetry. Spring exports actuator metrics directly;
+the Python services (RAG / Eval / Transform) export **traces**, which the OTel
+Collector's `spanmetrics` connector turns into RED metrics
+(`ai_factory_calls_total`, `ai_factory_duration_milliseconds_*`) so they appear
+in Prometheus alongside Spring.
+
+Open Grafana at http://localhost:3000 (`admin`/`admin`) →
+**AI Factory → Single Pane of Glass** for one unified view:
+
+- **Health at a glance** — services up, targets down, pipeline throughput,
+  error rate, Spring p95
+- **Agent pipeline RED** — throughput, p95 duration and error rate per stage
+  (retrieve → enrich → transform → generate → validate) and a target-health table
+- **Edge (Spring API)** — request rate, p95 latency and 5xx by route
+- **Runtime & infra** — JVM heap and CPU
+
+The header links out to **Jaeger** (http://localhost:16686) for end-to-end
+traces. A more detailed `AI Factory — Overview` dashboard is also provisioned.
 
 ## AWS Transform Definitions
 
@@ -177,6 +229,7 @@ mvn -f fintech/pom.xml clean test   # builds all 7 modules, no AWS access needed
 │   └── fx-settlement/
 ├── services/
 │   ├── rag/                        # Python RAG microservice (FastAPI :8001)
+│   │   └── connectors/            #   Confluence / SharePoint source connectors
 │   ├── eval/                       # Python eval microservice (FastAPI :8002)
 │   └── transform/                  # AWS Transform CLI wrapper service
 ├── spring/                         # Java Spring microservice (:8080)
