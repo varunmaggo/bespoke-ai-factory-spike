@@ -6,7 +6,9 @@ import com.fintech.payments.modern.client.PanTokeniser;
 import com.fintech.payments.modern.model.PaymentRequest;
 import com.fintech.payments.modern.model.PaymentResponse;
 import com.fintech.payments.modern.model.PaymentStatus;
+import com.fintech.payments.modern.observability.PaymentMetrics;
 import com.fintech.payments.modern.store.InMemoryIdempotencyStore;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -32,12 +34,15 @@ class PaymentServiceTest {
 
     private AcquirerClient acquirerClient;
     private PaymentService paymentService;
+    private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
         acquirerClient = Mockito.mock(AcquirerClient.class);
+        meterRegistry = new SimpleMeterRegistry();
         paymentService = new PaymentService(
-                acquirerClient, new InMemoryIdempotencyStore(), new PanTokeniser());
+                acquirerClient, new InMemoryIdempotencyStore(), new PanTokeniser(),
+                new PaymentMetrics(meterRegistry));
     }
 
     private PaymentRequest request(String amount, String idempotencyKey) {
@@ -91,5 +96,27 @@ class PaymentServiceTest {
 
         assertEquals("**** **** **** 1111", response.getMaskedPan());
         assertFalse(response.getMaskedPan().contains("4111111111111111"));
+    }
+
+    @Test
+    void businessMetricsAreRecordedPerOutcome() {
+        when(acquirerClient.authorise(anyString(), any(), anyString()))
+                .thenReturn(Map.of("status", "AUTHORISED", "authCode", "A1B2C3"));
+
+        PaymentRequest request = request("19.99", "idem-metrics");
+        paymentService.authorise(request);   // hits the acquirer
+        paymentService.authorise(request);   // idempotent replay, no acquirer call
+
+        assertEquals(1.0, meterRegistry.counter("payments.authorised", "currency", "GBP").count());
+        assertEquals(1.0, meterRegistry.counter("payments.idempotent.replays").count());
+        // 19.99 GBP authorised → 1999 minor units on the value counter
+        assertEquals(1999.0, meterRegistry.counter("payments.authorised.amount", "currency", "GBP").count());
+        assertEquals(1, meterRegistry.timer("payments.acquirer.latency").count());
+
+        when(acquirerClient.authorise(anyString(), any(), anyString()))
+                .thenThrow(new AcquirerUnavailableException("down", null));
+        paymentService.authorise(request("5.00", "idem-metrics-2"));
+
+        assertEquals(1.0, meterRegistry.counter("payments.acquirer.unavailable").count());
     }
 }

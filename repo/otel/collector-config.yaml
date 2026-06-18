@@ -13,6 +13,10 @@ receivers:
           static_configs:
             - targets: ["spring-service:8080"]
           metrics_path: /actuator/prometheus
+        - job_name: payment-gateway
+          static_configs:
+            - targets: ["payment-gateway:9081"]
+          metrics_path: /actuator/prometheus
 
 processors:
   batch:
@@ -45,6 +49,24 @@ processors:
       - key:    http.request.body
         action: delete
 
+connectors:
+  # Derives RED metrics (call counts + duration histograms) from every span
+  # produced by rag/eval/transform/spring/payment-gateway, broken down by
+  # service, span name and a few AI-factory-specific attributes. Exported via
+  # the prometheus exporter below as ai_factory_calls_total / ai_factory_duration_*.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [10ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s, 30s]
+    dimensions:
+      - name: transform.definition
+        default: ""
+      - name: transform.engine
+        default: ""
+      - name: eval.passed
+        default: ""
+    metrics_flush_interval: 15s
+
 exporters:
   otlp/jaeger:
     endpoint: jaeger:14250
@@ -73,10 +95,10 @@ service:
     traces:
       receivers:  [otlp]
       processors: [memory_limiter, attributes/redact_pii, resource, batch]
-      exporters:  [otlp/jaeger, logging]
+      exporters:  [otlp/jaeger, spanmetrics, logging]
 
     metrics:
-      receivers:  [otlp, prometheus]
+      receivers:  [otlp, prometheus, spanmetrics]
       processors: [memory_limiter, resource, batch]
       exporters:  [prometheus, logging]
 

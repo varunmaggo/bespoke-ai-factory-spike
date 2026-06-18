@@ -1,0 +1,122 @@
+# Prometheus alerting rules for the AI Factory + fintech estate.
+# Loaded via rule_files in prometheus.yml. In AWS the same expressions run in
+# Amazon Managed Prometheus / CloudWatch alarms (see infra/terraform/observability.tf).
+groups:
+  - name: platform
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} target is down"
+          description: "Prometheus has not scraped {{ $labels.instance }} for 2 minutes."
+
+      - alert: HighHttpErrorRate
+        expr: |
+          sum by (job) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            / sum by (job) (rate(http_server_requests_seconds_count[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} 5xx ratio above 5%"
+
+      - alert: HttpP95LatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum by (job, le) (rate(http_server_requests_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} p95 latency above 2s for 10m"
+
+  - name: payments
+    rules:
+      - alert: AcquirerCircuitOpen
+        expr: resilience4j_circuitbreaker_state{name="acquirer", state="open"} == 1
+        for: 1m
+        labels:
+          severity: critical
+          team: payments
+        annotations:
+          summary: "Acquirer circuit breaker is OPEN"
+          description: >
+            The payment gateway has tripped its acquirer circuit breaker —
+            authorisations are failing fast with ACQUIRER_UNAVAILABLE.
+
+      - alert: PaymentDeclineRateHigh
+        expr: |
+          sum(rate(payments_declined_total[10m]))
+            / (sum(rate(payments_authorised_total[10m])) + sum(rate(payments_declined_total[10m]))) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: payments
+        annotations:
+          summary: "Decline ratio above 30% over 10m"
+          description: "Possible acquirer rule change, fraud attack, or upstream data issue."
+
+      - alert: AcquirerOutageBurst
+        expr: increase(payments_acquirer_unavailable_total[5m]) > 10
+        for: 0m
+        labels:
+          severity: warning
+          team: payments
+        annotations:
+          summary: "More than 10 acquirer-unavailable payment failures in 5m"
+
+      - alert: AcquirerLatencyP99High
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (rate(payments_acquirer_latency_seconds_bucket[5m]))) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: payments
+        annotations:
+          summary: "Acquirer p99 round-trip above 5s"
+
+  - name: ai-quality
+    rules:
+      - alert: EvalGateFailureSpike
+        expr: increase(ai_factory_eval_gate_failures_total[15m]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "More than 5 eval-gate failures in 15m"
+          description: >
+            Generated answers are repeatedly scoring below the eval threshold —
+            check retrieval quality and recent corpus/model changes.
+
+      - alert: RAGSufficiencyScoreLow
+        expr: |
+          histogram_quantile(0.5,
+            sum(rate(ai_factory_rag_sufficiency_score_bucket[15m])) by (le)) < 0.6
+        for: 15m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "Median RAG sufficiency score below 0.6 for 15m"
+          description: >
+            Retrieved context is repeatedly judged insufficient to answer —
+            check the vector/graph indices and recent corpus changes.
+
+      - alert: AIFactorySpanErrorRateHigh
+        expr: |
+          sum by (service_name, span_name) (rate(ai_factory_calls_total{status_code="STATUS_CODE_ERROR"}[5m]))
+            / sum by (service_name, span_name) (rate(ai_factory_calls_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: ai-platform
+        annotations:
+          summary: "{{ $labels.service_name }} {{ $labels.span_name }} error rate above 10%"
+          description: >
+            Derived from span status codes via the OTel spanmetrics connector —
+            covers rag/eval/transform/spring/payment-gateway uniformly.

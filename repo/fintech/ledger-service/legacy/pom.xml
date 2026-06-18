@@ -81,12 +81,7 @@
     </dependency>
   </dependencies>
 
-  <build>
-    <plugins>
-      <plugin>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-maven-plugin</artifactId>
-      </plugin>
-    </plugins>
-  </build>
+  <!-- No spring-boot repackage: legacy modules are the pre-migration reference
+       state and are never containerised. The old Boot plugins also cannot
+       repackage Java 17 class files. Run tests with: mvn test -->
 </project>

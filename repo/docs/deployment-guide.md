@@ -14,14 +14,15 @@ environment promotion).
 | Component | AWS resource |
 |---|---|
 | Network | VPC (10.x.0.0/16), public + private subnets, NAT |
-| Compute | ECS Fargate cluster: spring (:8080), rag (:8001), eval (:8002), transform (:8003) |
+| Compute | ECS Fargate cluster: spring (:8080), payment-gateway (:9081), rag (:8001), eval (:8002), transform (:8003) |
 | Service discovery | Cloud Map private namespace `ai-factory.local` |
-| Entry point | Public ALB → spring-service (HTTPS when `certificate_arn` is set) |
+| Entry point | Public ALB → spring-service; `/api/v1/payments/*` path-routed to payment-gateway (HTTPS when `certificate_arn` is set) |
 | Vector search | Amazon OpenSearch domain (k-NN + BM25) |
 | Knowledge graph | Neo4j 5 on ECS with EFS persistence |
 | Secrets | Secrets Manager: `ai-factory/<env>/anthropic-api-key`, Neo4j password |
 | Images | ECR repos `ai-factory/<service>` (created with the dev stack) |
 | Observability | CloudWatch logs/metrics, Container Insights, ADOT sidecar, X-Ray |
+| Alerting | SNS topic + CloudWatch alarms (ALB 5xx/p95/unhealthy hosts, ECS CPU/mem, acquirer-outage log metric) and a CloudWatch dashboard — `infra/terraform/observability.tf`; subscribe via `alerts_email` |
 
 Environment sizing lives entirely in [infra/terraform/envs/](../infra/terraform/envs/):
 dev/sit are small and single-NAT; preprod/prod are 3-AZ, NAT-per-AZ, larger

@@ -72,3 +72,31 @@ resource "aws_lb_listener" "https" {
     target_group_arn = aws_lb_target_group.public["spring-service"].arn
   }
 }
+
+# ── Path-based routing for additional public services ────────────────────────
+# Services that declare path_patterns (e.g. payment-gateway → /api/v1/payments/*)
+# get a listener rule on whichever listener actually serves traffic.
+
+locals {
+  routed_services = { for k, v in local.public_services : k => v if length(v.path_patterns) > 0 }
+}
+
+resource "aws_lb_listener_rule" "path" {
+  for_each = local.routed_services
+
+  # Attach to HTTPS when a certificate exists (HTTP only redirects then),
+  # otherwise to the HTTP listener.
+  listener_arn = var.certificate_arn != "" ? aws_lb_listener.https[0].arn : aws_lb_listener.http.arn
+  priority     = 100 + index(sort(keys(local.routed_services)), each.key)
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.public[each.key].arn
+  }
+
+  condition {
+    path_pattern {
+      values = each.value.path_patterns
+    }
+  }
+}

@@ -14,8 +14,12 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -30,6 +34,8 @@ logger = logging.getLogger(__name__)
 # ── Globals initialised in lifespan ──────────────────────────────────────────
 evaluator: RAGEvaluator | None = None
 judge: LLMJudge | None = None
+gate_failure_counter: metrics.Counter | None = None
+weighted_score_histogram: metrics.Histogram | None = None
 
 
 @asynccontextmanager
@@ -77,9 +83,21 @@ def evaluate(req: EvaluateRequest):
             expected_output=req.expected_output,
         )
 
+        passed = judge_score.passed and eval_report.passed
+
         span.set_attribute("eval.weighted_score", judge_score.weighted_score)
         span.set_attribute("eval.overall_score", eval_report.overall_score)
-        span.set_attribute("eval.passed", judge_score.passed and eval_report.passed)
+        span.set_attribute("eval.passed", passed)
+
+        weighted_score_histogram.record(judge_score.weighted_score)
+        if not passed:
+            if not judge_score.passed and not eval_report.passed:
+                reason = "both"
+            elif not judge_score.passed:
+                reason = "judge"
+            else:
+                reason = "deepeval"
+            gate_failure_counter.add(1, {"reason": reason})
 
         return {
             "weighted_score": judge_score.weighted_score,
@@ -102,11 +120,42 @@ def evaluate(req: EvaluateRequest):
 # ── OTel setup ────────────────────────────────────────────────────────────────
 
 def _setup_otel() -> None:
+    global gate_failure_counter, weighted_score_histogram
+
     otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
-    provider = TracerProvider(
-        resource=Resource.create({SERVICE_NAME: "eval-service"})
-    )
-    provider.add_span_processor(
+    resource = Resource.create({SERVICE_NAME: "eval-service"})
+
+    trace_provider = TracerProvider(resource=resource)
+    trace_provider.add_span_processor(
         BatchSpanProcessor(OTLPSpanExporter(endpoint=otel_endpoint, insecure=True))
     )
-    trace.set_tracer_provider(provider)
+    trace.set_tracer_provider(trace_provider)
+
+    # Scores are 0-1 ratios — replace the default ms-scale histogram buckets
+    # with ones suited to that range.
+    score_view = View(
+        instrument_name="eval.weighted_score",
+        aggregation=ExplicitBucketHistogramAggregation(
+            boundaries=(0.0, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0)
+        ),
+    )
+    meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[
+            PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=otel_endpoint, insecure=True))
+        ],
+        views=[score_view],
+    )
+    metrics.set_meter_provider(meter_provider)
+
+    meter = metrics.get_meter("eval-service")
+    gate_failure_counter = meter.create_counter(
+        "eval.gate.failures",
+        unit="1",
+        description="Responses that failed the AI-quality eval gate (judge and/or DeepEval)",
+    )
+    weighted_score_histogram = meter.create_histogram(
+        "eval.weighted_score",
+        unit="1",
+        description="LLM-judge weighted score per evaluation",
+    )

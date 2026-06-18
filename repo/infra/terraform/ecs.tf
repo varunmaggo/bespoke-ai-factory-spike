@@ -114,6 +114,8 @@ locals {
     NEO4J_URI                   = "bolt://neo4j.${var.project}.local:7687"
     NEO4J_USER                  = "neo4j"
     OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317" # ADOT sidecar
+    ACQUIRER_URL                = var.acquirer_url
+    DEPLOY_ENV                  = var.environment
   })
 }
 

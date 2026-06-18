@@ -62,7 +62,7 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Eval Gate — Failure Count (5m)",
+      "title": "HTTP 5xx Count (5m)",
       "gridPos": { "h": 6, "w": 8, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
       "targets": [
@@ -95,6 +95,69 @@
         {
           "expr": "count(up == 0) or vector(0)",
           "legendFormat": "down"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "AI Factory — p95 Span Latency (via spanmetrics)",
+      "description": "Per-service, per-span p95 duration derived from traces by the OTel Collector's spanmetrics connector — covers rag/eval/transform/spring/payment-gateway uniformly, no app code changes needed.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(ai_factory_duration_milliseconds_bucket[5m])) by (le, service_name, span_name))",
+          "legendFormat": "{{service_name}}: {{span_name}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "AI Factory — Span Error Rate",
+      "description": "Share of spans per service/span that completed with an error status, from the spanmetrics connector.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(ai_factory_calls_total{status_code=\"STATUS_CODE_ERROR\"}[5m])) by (service_name, span_name) / sum(rate(ai_factory_calls_total[5m])) by (service_name, span_name) or vector(0)",
+          "legendFormat": "{{service_name}}: {{span_name}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Eval Gate — Failures by Reason (5m)",
+      "description": "Responses that failed the AI-quality eval gate, split by which check failed (LLM judge, DeepEval, or both). Backs the EvalGateFailureSpike alert.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        {
+          "expr": "sum(increase(ai_factory_eval_gate_failures_total[5m])) by (reason) or vector(0)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "AI Quality — Median Scores",
+      "description": "Median LLM-judge weighted score (eval-service) and RAG retrieval-sufficiency score (rag-service). Backs RAGSufficiencyScoreLow.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 30 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(ai_factory_eval_weighted_score_bucket[15m])) by (le))",
+          "legendFormat": "eval weighted score (p50)"
+        },
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(ai_factory_rag_sufficiency_score_bucket[15m])) by (le))",
+          "legendFormat": "rag sufficiency score (p50)"
         }
       ]
     }

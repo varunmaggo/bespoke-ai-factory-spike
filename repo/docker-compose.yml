@@ -96,6 +96,53 @@ services:
       timeout: 10s
       retries: 5
 
+  # ── Fintech estate (start with: docker compose --profile fintech up -d) ───
+
+  payment-gateway:
+    profiles: ["fintech"]
+    build:
+      context: ./fintech/payment-gateway
+      dockerfile: Dockerfile
+    ports:
+      - "9081:9081"
+    environment:
+      ACQUIRER_URL:       http://stub-acquirer:9999
+      DEPLOY_ENV:         local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_SERVICE_NAME:  payment-gateway
+    depends_on:
+      - stub-acquirer
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Fake card acquirer: approves everything — lets the gateway run end-to-end
+  # locally. Stop this container to watch the Resilience4j circuit open on the
+  # fintech-payments Grafana board.
+  stub-acquirer:
+    profiles: ["fintech"]
+    image: python:3.11-alpine
+    command:
+      - python
+      - -c
+      - |
+        import json, http.server
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get('Content-Length', 0)))
+                body = json.dumps({"status": "AUTHORISED", "authCode": "STUB42"}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            def log_message(self, *a): pass
+        http.server.HTTPServer(("0.0.0.0", 9999), H).serve_forever()
+    ports:
+      - "9999:9999"
+
   # ── Data Stores ───────────────────────────────────────────────────────────
 
   opensearch:
@@ -154,6 +201,7 @@ services:
       - --storage.tsdb.retention.time=30d
     volumes:
       - ./otel/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./otel/prometheus-alerts.yml:/etc/prometheus/prometheus-alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
